@@ -178,6 +178,19 @@ const App = (() => {
       .catch(e => {
         if (!routeData) {
           console.error('Failed to load route data:', e);
+          // Show error to user instead of silent skeleton forever
+          dom.skeletonList.classList.add('hidden');
+          const errorDiv = document.createElement('div');
+          errorDiv.className = 'empty-state';
+          errorDiv.innerHTML = `
+            <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M12 8v4M12 16h.01"/>
+            </svg>
+            <h3>Failed to load route data</h3>
+            <p>Check your connection and try refreshing the page.</p>
+          `;
+          dom.cameraList.appendChild(errorDiv);
         }
       });
 

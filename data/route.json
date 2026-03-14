@@ -52,7 +52,6 @@
         { "id": "everett", "name": "Everett", "region": "WA", "lat": 47.9790, "lon": -122.2021 },
         { "id": "seattle", "name": "Seattle", "region": "WA", "lat": 47.6062, "lon": -122.3321 }
       ]
-    }
     },
     "lethbridge": {
       "name": "Lethbridge Spur (Hwy 2 / Hwy 3 East)",
@@ -65,5 +64,5 @@
       ]
     }
   },
-  "corridorBuffer": 5
+  "corridorBuffer": 25
 }
