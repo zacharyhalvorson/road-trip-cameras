@@ -300,6 +300,10 @@ const App = (() => {
   async function refreshCameras() {
     dom.refreshBtn.classList.add('spinning');
     API.clearCache();
+    // Also clear Service Worker image cache so fresh images are fetched
+    if ('caches' in window) {
+      await caches.delete('tripcams-images-v1').catch(() => {});
+    }
     await loadCameras();
     setTimeout(() => dom.refreshBtn.classList.remove('spinning'), 500);
   }
@@ -416,7 +420,9 @@ const App = (() => {
         for (const entry of entries) {
           if (entry.isIntersecting) {
             const img = entry.target;
-            img.src = img.dataset.src;
+            const src = img.dataset.src;
+            const sep = src.includes('?') ? '&' : '?';
+            img.src = src + sep + '_t=' + Date.now();
             img.removeAttribute('data-src');
             img.onerror = () => { img.src = 'img/placeholder.svg'; };
             observer.unobserve(img);
@@ -428,7 +434,9 @@ const App = (() => {
     } else {
       // Fallback: load all
       images.forEach(img => {
-        img.src = img.dataset.src;
+        const src = img.dataset.src;
+        const sep = src.includes('?') ? '&' : '?';
+        img.src = src + sep + '_t=' + Date.now();
         img.removeAttribute('data-src');
       });
     }
