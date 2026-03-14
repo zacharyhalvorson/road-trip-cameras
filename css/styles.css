@@ -137,24 +137,6 @@ button {
   min-width: 0;
 }
 
-.locate-btn {
-  width: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 12px;
-  background: var(--green-subtle);
-  color: var(--green);
-  flex-shrink: 0;
-  transition: transform var(--duration-fast) var(--spring),
-              background var(--duration-fast);
-}
-
-.locate-btn:active {
-  transform: scale(0.9);
-  background: rgba(45, 184, 75, 0.2);
-}
-
 .route-input {
   flex: 1;
   min-width: 0;

@@ -84,7 +84,6 @@ const App = (() => {
     dom.toInput = $('#toInput');
     dom.toValue = $('#toValue');
     dom.swapBtn = $('#swapBtn');
-    dom.locateBtn = $('#locateBtn');
     dom.dropdown = $('#dropdown');
     dom.dropdownOverlay = $('#dropdownOverlay');
     dom.dropdownSearch = $('#dropdownSearch');
@@ -197,7 +196,6 @@ const App = (() => {
     dom.fromInput.addEventListener('click', () => openDropdown('from'));
     dom.toInput.addEventListener('click', () => openDropdown('to'));
     dom.swapBtn.addEventListener('click', swapStops);
-    dom.locateBtn.addEventListener('click', locateUser);
 
     // Dropdown
     dom.dropdownOverlay.addEventListener('click', closeDropdown);
@@ -388,34 +386,6 @@ const App = (() => {
     }
   }
 
-  // ── Geolocation ──────────────────────────────────────────────
-
-  function locateUser() {
-    if (!navigator.geolocation) return;
-
-    dom.locateBtn.style.color = 'var(--green)';
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const { latitude, longitude } = pos.coords;
-        TripMap.showUserLocation(latitude, longitude);
-
-        // Snap to nearest stop for "from"
-        const nearest = Cameras.nearestStop(latitude, longitude, allStops);
-        fromStop = nearest;
-        if (nearest) saveHistory(nearest.id);
-        updateRouteDisplay();
-        updateRoute();
-        applyFilters();
-        updateHash();
-        savePrefs();
-      },
-      (err) => {
-        console.warn('Geolocation failed:', err.message);
-        dom.locateBtn.style.color = '';
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
-  }
 
   // ── Camera Loading ───────────────────────────────────────────
 
