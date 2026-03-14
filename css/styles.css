@@ -647,13 +647,15 @@ button {
 
 .camera-card {
   display: flex;
-  gap: 12px;
-  padding: 12px;
-  margin-bottom: 8px;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  margin-bottom: 10px;
   background: var(--navy-card);
   border-radius: 16px;
   border: 1px solid var(--border-light);
   cursor: pointer;
+  overflow: hidden;
   transition: transform var(--duration-fast) var(--spring),
               background var(--duration-fast),
               border-color var(--duration-fast);
@@ -675,9 +677,9 @@ button {
 }
 
 .camera-thumb {
-  width: 120px;
-  height: 90px;
-  border-radius: 12px;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 0;
   overflow: hidden;
   flex-shrink: 0;
   background: var(--navy);
@@ -719,6 +721,7 @@ button {
   flex-direction: column;
   justify-content: center;
   gap: 4px;
+  padding: 10px 12px 12px;
 }
 
 .camera-name {
@@ -1220,9 +1223,22 @@ button {
     display: none;
   }
 
+  .camera-card {
+    flex-direction: row;
+    gap: 12px;
+    padding: 12px;
+    overflow: visible;
+  }
+
   .camera-thumb {
     width: 140px;
     height: 105px;
+    aspect-ratio: auto;
+    border-radius: 12px;
+  }
+
+  .camera-info {
+    padding: 0;
   }
 
   .modal {
@@ -1245,10 +1261,6 @@ button {
 @media (min-width: 1200px) {
   .camera-list {
     padding: 0 16px;
-  }
-
-  .camera-card {
-    padding: 14px;
   }
 
   .camera-thumb {

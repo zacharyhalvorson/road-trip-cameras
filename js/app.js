@@ -365,7 +365,7 @@ const App = (() => {
           <img src="img/placeholder.svg"
                data-src="${imgSrc}"
                alt="${cam.name}"
-               width="120" height="90"
+               width="640" height="360"
                loading="lazy">
           <span class="thumb-region ${cam.region}">${cam.region}</span>
         </div>
