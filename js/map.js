@@ -168,6 +168,36 @@ const TripMap = (() => {
     activeVisibleIds = new Set(visibleIds);
   }
 
+  // Fit map to show the visible cameras with enough context
+  let fitDebounceTimer = null;
+
+  function fitToVisible(visibleIds) {
+    if (!visibleIds || visibleIds.size === 0) return;
+
+    clearTimeout(fitDebounceTimer);
+    fitDebounceTimer = setTimeout(() => {
+      const latlngs = [];
+      for (const id of visibleIds) {
+        if (markers.has(id)) {
+          const m = markers.get(id);
+          latlngs.push(m.getLatLng());
+        }
+      }
+      if (latlngs.length === 0) return;
+
+      if (latlngs.length === 1) {
+        map.flyTo(latlngs[0], 10, { duration: 0.6 });
+      } else {
+        const bounds = L.latLngBounds(latlngs);
+        map.flyToBounds(bounds, {
+          padding: [40, 40],
+          maxZoom: 11,
+          duration: 0.6,
+        });
+      }
+    }, 250);
+  }
+
   function panTo(lat, lon, zoom) {
     map.flyTo([lat, lon], zoom || 12, {
       duration: 0.8,
@@ -206,6 +236,7 @@ const TripMap = (() => {
     setMarkers,
     highlightMarker,
     highlightVisible,
+    fitToVisible,
     panTo,
     showUserLocation,
     invalidateSize,

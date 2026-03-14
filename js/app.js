@@ -14,6 +14,7 @@ const App = (() => {
   let dropdownTarget = null; // 'from' or 'to'
   let autoRefreshInterval = null;
   let currentModalCamera = null;
+  let sheetExpanded = false; // true when sheet is pulled up (20vh map)
 
   // DOM refs
   const $ = (sel) => document.querySelector(sel);
@@ -441,8 +442,11 @@ const App = (() => {
           visibleIds.delete(id);
         }
       }
-      // Highlight all visible markers, pan to center of visible group
       TripMap.highlightVisible(visibleIds);
+      // When sheet is expanded, zoom map to show visible cameras
+      if (sheetExpanded) {
+        TripMap.fitToVisible(visibleIds);
+      }
     }, {
       root: dom.cameraList,
       rootMargin: '0px',
@@ -530,15 +534,34 @@ const App = (() => {
 
       // Snap to either expanded (mostly list) or collapsed (mostly map)
       if (currentTop < midpoint) {
-        // Show mostly list
+        // Show mostly list — zoom map to visible cameras
         mapContainer.style.height = '20vh';
         sheet.style.top = `calc(${headerHeight}px + 20vh)`;
+        sheetExpanded = true;
+        TripMap.invalidateSize();
+        // After map resizes, fit to currently visible cards
+        setTimeout(() => {
+          const visibleCards = dom.cameraList.querySelectorAll('.camera-card');
+          const visibleIds = new Set();
+          for (const card of visibleCards) {
+            const rect = card.getBoundingClientRect();
+            const listRect = dom.cameraList.getBoundingClientRect();
+            if (rect.top < listRect.bottom && rect.bottom > listRect.top) {
+              visibleIds.add(card.dataset.id);
+            }
+          }
+          if (visibleIds.size > 0) {
+            TripMap.fitToVisible(visibleIds);
+          }
+        }, 200);
       } else {
-        // Show mostly map
+        // Show mostly map — zoom out to full route
         mapContainer.style.height = '50vh';
         sheet.style.top = `calc(${headerHeight}px + 50vh)`;
+        sheetExpanded = false;
+        TripMap.invalidateSize();
+        setTimeout(() => TripMap.fitToRoute(currentWaypoints), 200);
       }
-      TripMap.invalidateSize();
     }
 
     handle.addEventListener('touchstart', onStart, { passive: true });
