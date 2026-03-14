@@ -188,12 +188,30 @@ const Cameras = (() => {
     return true;
   }
 
+  // Cache corridor distance results to avoid recomputing for same camera+route
+  let _corridorCache = { waypointKey: '', distances: new Map() };
+
+  function getCorridorCacheKey(waypoints) {
+    return waypoints.map(w => `${w.lat.toFixed(3)},${w.lon.toFixed(3)}`).join('|');
+  }
+
   // Filter cameras to those within the route corridor
   function filterByCorridor(cameras, waypoints, bufferKm) {
-    return cameras.filter(cam =>
-      isHighwayCamera(cam) &&
-      pointToPolylineDistance(cam.lat, cam.lon, waypoints) <= bufferKm
-    );
+    const wpKey = getCorridorCacheKey(waypoints);
+    if (_corridorCache.waypointKey !== wpKey) {
+      _corridorCache = { waypointKey: wpKey, distances: new Map() };
+    }
+    const distCache = _corridorCache.distances;
+
+    return cameras.filter(cam => {
+      if (!isHighwayCamera(cam)) return false;
+      let dist = distCache.get(cam.id);
+      if (dist === undefined) {
+        dist = pointToPolylineDistance(cam.lat, cam.lon, waypoints);
+        distCache.set(cam.id, dist);
+      }
+      return dist <= bufferKm;
+    });
   }
 
   // Sort cameras by their position along the route
