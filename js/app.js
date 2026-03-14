@@ -19,6 +19,8 @@ const App = (() => {
 
   const PREFS_KEY = 'tripcams_prefs';
   const ROUTE_DATA_KEY = 'tripcams_route_data';
+  const HISTORY_KEY = 'tripcams_destination_history';
+  const MAX_HISTORY = 8;
 
   function savePrefs() {
     try {
@@ -49,6 +51,25 @@ const App = (() => {
       if (stored) return JSON.parse(stored).data;
     } catch (e) { /* ignore */ }
     return null;
+  }
+
+  function loadHistory() {
+    try {
+      const stored = localStorage.getItem(HISTORY_KEY);
+      return stored ? JSON.parse(stored) : [];
+    } catch (e) { return []; }
+  }
+
+  function saveHistory(stopId) {
+    try {
+      let history = loadHistory();
+      // Remove if already present, then prepend
+      history = history.filter(id => id !== stopId);
+      history.unshift(stopId);
+      // Cap at max
+      if (history.length > MAX_HISTORY) history = history.slice(0, MAX_HISTORY);
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+    } catch (e) { /* ignore */ }
   }
 
   // DOM refs
@@ -254,30 +275,49 @@ const App = (() => {
     renderDropdownList(dom.dropdownSearch.value);
   }
 
-  // Pre-build dropdown items once; show/hide on filter instead of rebuilding DOM
-  let dropdownItems = []; // { li, stop }
-
-  function buildDropdownItems() {
-    const fragment = document.createDocumentFragment();
-    dropdownItems = allStops.map(stop => {
-      const li = document.createElement('li');
-      li.dataset.id = stop.id;
-      li.tabIndex = 0;
-      li.innerHTML = `<span class="city-name">${stop.name}</span><span class="city-region ${stop.region}">${stop.region}</span>`;
-      li.addEventListener('click', () => selectStop(stop.id));
-      li.addEventListener('keydown', (e) => { if (e.key === 'Enter') selectStop(stop.id); });
-      fragment.appendChild(li);
-      return { li, stop, searchText: (stop.name + ' ' + stop.region).toLowerCase() };
-    });
-    dom.dropdownList.appendChild(fragment);
+  function createStopLi(stop) {
+    const li = document.createElement('li');
+    li.dataset.id = stop.id;
+    li.tabIndex = 0;
+    li.innerHTML = `<span class="city-name">${stop.name}</span><span class="city-region ${stop.region}">${stop.region}</span>`;
+    li.addEventListener('click', () => selectStop(stop.id));
+    li.addEventListener('keydown', (e) => { if (e.key === 'Enter') selectStop(stop.id); });
+    return li;
   }
 
   function renderDropdownList(query) {
-    if (dropdownItems.length === 0) buildDropdownItems();
-
+    dom.dropdownList.innerHTML = '';
     const q = query.toLowerCase().trim();
-    for (const { li, searchText } of dropdownItems) {
-      li.style.display = (!q || searchText.includes(q)) ? '' : 'none';
+    const history = loadHistory();
+
+    // Show recent section when not searching and there's history
+    if (!q && history.length > 0) {
+      const recentStops = history
+        .map(id => allStops.find(s => s.id === id))
+        .filter(Boolean);
+
+      if (recentStops.length > 0) {
+        const header = document.createElement('li');
+        header.className = 'dropdown-section-header';
+        header.textContent = 'Recent';
+        dom.dropdownList.appendChild(header);
+
+        for (const stop of recentStops) {
+          dom.dropdownList.appendChild(createStopLi(stop));
+        }
+
+        const allHeader = document.createElement('li');
+        allHeader.className = 'dropdown-section-header';
+        allHeader.textContent = 'All destinations';
+        dom.dropdownList.appendChild(allHeader);
+      }
+    }
+
+    for (const stop of allStops) {
+      const searchText = (stop.name + ' ' + stop.region).toLowerCase();
+      if (!q || searchText.includes(q)) {
+        dom.dropdownList.appendChild(createStopLi(stop));
+      }
     }
   }
 
@@ -290,6 +330,8 @@ const App = (() => {
     } else {
       toStop = stop;
     }
+
+    saveHistory(stopId);
 
     closeDropdown();
     updateRouteDisplay();
@@ -308,6 +350,8 @@ const App = (() => {
     applyFilters();
     updateHash();
     savePrefs();
+    if (fromStop) saveHistory(fromStop.id);
+    if (toStop) saveHistory(toStop.id);
 
     // Animate the swap button
     dom.swapBtn.style.transform = 'scale(0.85) rotate(180deg)';
@@ -358,6 +402,7 @@ const App = (() => {
         // Snap to nearest stop for "from"
         const nearest = Cameras.nearestStop(latitude, longitude, allStops);
         fromStop = nearest;
+        if (nearest) saveHistory(nearest.id);
         updateRouteDisplay();
         updateRoute();
         applyFilters();
