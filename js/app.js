@@ -16,6 +16,7 @@ const App = (() => {
   let currentModalCamera = null;
   let sheetExpanded = false; // true when sheet is pulled up (20vh map)
   let _mapInitiatedScroll = false; // true when map viewport change is scrolling the list
+  let userLocation = null; // { lat, lon, nearestStop } when geolocation available
 
   const PREFS_KEY = 'tripcams_prefs';
   const ROUTE_DATA_KEY = 'tripcams_route_data';
@@ -182,7 +183,7 @@ const App = (() => {
     updateRouteDisplay();
     updateRoute();
 
-    // Request user location on load
+    // Detect user location so it can appear in the picker
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
@@ -190,13 +191,7 @@ const App = (() => {
           TripMap.showUserLocation(latitude, longitude);
           const nearest = Cameras.nearestStop(latitude, longitude, allStops);
           if (nearest) {
-            fromStop = nearest;
-            saveHistory(nearest.id);
-            updateRouteDisplay();
-            updateRoute();
-            applyFilters();
-            updateHash();
-            savePrefs();
+            userLocation = { lat: latitude, lon: longitude, nearestStop: nearest };
           }
         },
         () => {},
@@ -309,6 +304,19 @@ const App = (() => {
     dom.dropdownList.innerHTML = '';
     const q = query.toLowerCase().trim();
     const history = loadHistory();
+
+    // Show "Current Location" option when geolocation is available
+    if (userLocation && (!q || 'current location'.includes(q) ||
+        userLocation.nearestStop.name.toLowerCase().includes(q))) {
+      const li = document.createElement('li');
+      li.dataset.id = userLocation.nearestStop.id;
+      li.tabIndex = 0;
+      li.className = 'location-option';
+      li.innerHTML = `<svg class="location-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg><span class="city-name">Current Location</span><span class="city-region ${userLocation.nearestStop.region}">${userLocation.nearestStop.name}</span>`;
+      li.addEventListener('click', () => selectStop(userLocation.nearestStop.id));
+      li.addEventListener('keydown', (e) => { if (e.key === 'Enter') selectStop(userLocation.nearestStop.id); });
+      dom.dropdownList.appendChild(li);
+    }
 
     // Show recent section when not searching and there's history
     if (!q && history.length > 0) {
