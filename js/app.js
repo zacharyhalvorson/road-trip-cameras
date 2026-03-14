@@ -355,38 +355,49 @@ const App = (() => {
 
     cameras.forEach((cam, i) => {
       const card = document.createElement('div');
-      card.className = 'camera-card';
       card.dataset.id = cam.id;
       card.style.animationDelay = `${Math.min(i * 30, 300)}ms`;
 
-      const imgSrc = cam.thumbnailUrl || cam.imageUrl || 'img/placeholder.svg';
+      const hasImage = cam.imageUrl && cam.status === 'active';
 
-      card.innerHTML = `
-        <div class="camera-thumb">
-          <img src="img/placeholder.svg"
-               data-src="${imgSrc}"
-               alt="${cam.name}"
-               width="640" height="360"
-               loading="lazy">
+      if (hasImage) {
+        card.className = 'camera-card';
+        const imgSrc = cam.thumbnailUrl || cam.imageUrl;
+        card.innerHTML = `
+          <div class="camera-thumb">
+            <img src="img/placeholder.svg"
+                 data-src="${imgSrc}"
+                 alt="${cam.name}"
+                 width="640" height="360"
+                 loading="lazy">
+            <span class="thumb-region ${cam.region}">${cam.region}</span>
+          </div>
+          <div class="camera-info">
+            <div class="camera-name">${cam.name}</div>
+            <div class="camera-highway">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
+                <circle cx="12" cy="9" r="2.5"/>
+              </svg>
+              ${cam.highway}${cam.direction ? ' · ' + cam.direction : ''}
+            </div>
+            <div class="camera-status">
+              <span class="status-dot"></span>
+              Live
+            </div>
+          </div>
+        `;
+        card.addEventListener('click', () => openModal(cam));
+      } else {
+        card.className = 'camera-card camera-card-disabled';
+        card.innerHTML = `
           <span class="thumb-region ${cam.region}">${cam.region}</span>
-        </div>
-        <div class="camera-info">
-          <div class="camera-name">${cam.name}</div>
-          <div class="camera-highway">
-            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
-              <circle cx="12" cy="9" r="2.5"/>
-            </svg>
-            ${cam.highway}${cam.direction ? ' · ' + cam.direction : ''}
-          </div>
-          <div class="camera-status ${cam.status === 'active' ? '' : 'offline'}">
-            <span class="status-dot"></span>
-            ${cam.status === 'active' ? 'Live' : 'Offline'}
-          </div>
-        </div>
-      `;
+          <span class="camera-name">${cam.name}</span>
+          <span class="camera-highway-inline">${cam.highway}${cam.direction ? ' · ' + cam.direction : ''}</span>
+          <span class="camera-status offline"><span class="status-dot"></span>Offline</span>
+        `;
+      }
 
-      card.addEventListener('click', () => openModal(cam));
       fragment.appendChild(card);
     });
 

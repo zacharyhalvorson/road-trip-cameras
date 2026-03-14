@@ -784,6 +784,52 @@ button {
   50% { opacity: 0.4; }
 }
 
+/* Compact disabled card for offline / no-feed cameras */
+.camera-card-disabled {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px !important;
+  padding: 8px 12px !important;
+  opacity: 0.55;
+  overflow: visible !important;
+}
+
+.camera-card-disabled .thumb-region {
+  position: static;
+  flex-shrink: 0;
+}
+
+.camera-card-disabled .camera-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  -webkit-line-clamp: unset;
+}
+
+.camera-card-disabled .camera-highway-inline {
+  display: none;
+}
+
+.camera-card-disabled .camera-status {
+  flex-shrink: 0;
+}
+
+@media (min-width: 480px) {
+  .camera-card-disabled .camera-highway-inline {
+    display: block;
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 150px;
+  }
+}
+
 /* Skeleton loading */
 .skeleton-list {
   padding: 0;
