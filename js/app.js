@@ -157,18 +157,52 @@ const App = (() => {
     if (cachedRouteData) {
       routeData = cachedRouteData;
     }
-    try {
-      const resp = await fetch('data/route.json');
-      routeData = await resp.json();
-      saveRouteData(routeData);
-    } catch (e) {
-      if (!routeData) {
-        console.error('Failed to load route data:', e);
-        return;
-      }
-      // Using cached route data — fine for offline
+
+    // If we have cached route data, set up the route immediately (no waiting)
+    if (routeData) {
+      _initRouteAndCameras();
     }
 
+    // Fetch fresh route.json in background — update if different
+    fetch('data/route.json')
+      .then(resp => resp.json())
+      .then(freshData => {
+        const hadRouteData = !!routeData;
+        routeData = freshData;
+        saveRouteData(routeData);
+        // If we didn't have cached data, initialize now
+        if (!hadRouteData) {
+          _initRouteAndCameras();
+        }
+      })
+      .catch(e => {
+        if (!routeData) {
+          console.error('Failed to load route data:', e);
+        }
+      });
+
+    // Detect user location so it can appear in the picker
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const { latitude, longitude } = pos.coords;
+          TripMap.showUserLocation(latitude, longitude);
+          const nearest = Cameras.nearestStop(latitude, longitude, allStops);
+          if (nearest) {
+            userLocation = { lat: latitude, lon: longitude, nearestStop: nearest };
+          }
+        },
+        () => {},
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    }
+
+    // Online/offline detection
+    updateOnlineStatus();
+  }
+
+  // Extract route setup + camera loading so it can run immediately from cache
+  function _initRouteAndCameras() {
     allStops = Cameras.getAllStops(routeData);
 
     // Parse URL hash for initial stops
@@ -195,29 +229,8 @@ const App = (() => {
     updateRouteDisplay();
     updateRoute();
 
-    // Detect user location so it can appear in the picker
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const { latitude, longitude } = pos.coords;
-          TripMap.showUserLocation(latitude, longitude);
-          const nearest = Cameras.nearestStop(latitude, longitude, allStops);
-          if (nearest) {
-            userLocation = { lat: latitude, lon: longitude, nearestStop: nearest };
-          }
-        },
-        () => {},
-        { enableHighAccuracy: true, timeout: 10000 }
-      );
-    }
-
-    // Online/offline detection
-    updateOnlineStatus();
-
-    // Defer camera loading until after first paint so the UI is interactive sooner
-    requestAnimationFrame(() => {
-      loadCameras();
-    });
+    // Start camera loading immediately — no RAF delay
+    loadCameras();
   }
 
   function bindEvents() {
@@ -405,6 +418,7 @@ const App = (() => {
   function updateRoute() {
     if (!routeData || !fromStop || !toStop) return;
     currentWaypoints = Cameras.findRoute(routeData, fromStop.id, toStop.id);
+    _lastFilteredIds = ''; // Reset so filters re-render for new route
     TripMap.drawRoute(currentWaypoints);
     TripMap.fitToRoute(currentWaypoints);
   }
@@ -461,16 +475,6 @@ const App = (() => {
   // ── Camera Loading ───────────────────────────────────────────
 
   async function loadCameras() {
-    dom.skeletonList.classList.remove('hidden');
-    removeCameraCards();
-    allCameras = [];
-    let anyFromCache = false;
-
-    // Show loading state instead of confusing "0 cameras"
-    dom.countNumber.textContent = '';
-    dom.countNumber.classList.add('loading');
-    dom.cameraCount.classList.add('loading');
-
     // Determine which regions the route passes through
     const neededRegions = new Set();
     if (currentWaypoints.length > 0) {
@@ -479,14 +483,46 @@ const App = (() => {
       }
     }
 
-    await API.fetchProgressive((region, result) => {
-      if (result.fromCache) anyFromCache = true;
-      allCameras = allCameras.concat(result.data || []);
+    // ── Instant render from cache (synchronous, no network wait) ──
+    const cachedCameras = API.getCachedImmediate(neededRegions.size > 0 ? neededRegions : null);
+    if (cachedCameras && cachedCameras.length > 0) {
+      allCameras = cachedCameras;
       applyFilters();
-      // Once first results arrive, remove loading state on count
+      // Don't show skeleton — user already sees real content
       dom.countNumber.classList.remove('loading');
       dom.cameraCount.classList.remove('loading');
+    } else {
+      // No cache: show skeleton loading state
+      dom.skeletonList.classList.remove('hidden');
+      removeCameraCards();
+      allCameras = [];
+      dom.countNumber.textContent = '';
+      dom.countNumber.classList.add('loading');
+      dom.cameraCount.classList.add('loading');
+    }
+
+    // ── Background refresh: fetch fresh data and update in-place ──
+    let anyFromCache = cachedCameras != null;
+    const freshCameras = [];
+    const hadCachedData = cachedCameras && cachedCameras.length > 0;
+
+    await API.fetchProgressive((region, result) => {
+      if (result.fromCache) anyFromCache = true;
+      freshCameras.push(...(result.data || []));
+      // Only re-render if we didn't have cached data, or if fresh data differs
+      if (!hadCachedData) {
+        allCameras = freshCameras.slice();
+        applyFilters();
+        dom.countNumber.classList.remove('loading');
+        dom.cameraCount.classList.remove('loading');
+      }
     }, neededRegions.size > 0 ? neededRegions : null);
+
+    // Final update with all fresh data (even if we showed cached)
+    if (freshCameras.length > 0) {
+      allCameras = freshCameras;
+      applyFilters();
+    }
 
     if (anyFromCache && !navigator.onLine) {
       dom.offlineBanner.classList.add('visible');
@@ -507,6 +543,8 @@ const App = (() => {
     setTimeout(() => dom.refreshBtn.classList.remove('spinning'), 500);
   }
 
+  let _lastFilteredIds = ''; // Track last rendered set to skip no-op re-renders
+
   function applyFilters() {
     // Filter by corridor
     let cameras = currentWaypoints.length > 0
@@ -522,6 +560,13 @@ const App = (() => {
     if (currentWaypoints.length > 0) {
       cameras = Cameras.sortByRoute(cameras, currentWaypoints);
     }
+
+    // Skip re-render if the camera list hasn't changed
+    const newIds = cameras.map(c => c.id).join(',');
+    if (newIds === _lastFilteredIds) {
+      return; // Same cameras in same order — no DOM work needed
+    }
+    _lastFilteredIds = newIds;
 
     filteredCameras = cameras;
     renderCameraList(cameras);

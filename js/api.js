@@ -216,5 +216,24 @@ const API = (() => {
     await Promise.allSettled(fetchers);
   }
 
-  return { fetchAll, fetchProgressive, clearCache };
+  // Return cached data synchronously for instant display (no network)
+  function getCachedImmediate(neededRegions) {
+    const regions = neededRegions
+      ? [{ key: 'AB', norm: Cameras.normalizeAlberta }, { key: 'BC', norm: Cameras.normalizeBC }, { key: 'WA', norm: Cameras.normalizeWA }]
+          .filter(r => neededRegions.has(r.key))
+      : [{ key: 'AB', norm: Cameras.normalizeAlberta }, { key: 'BC', norm: Cameras.normalizeBC }, { key: 'WA', norm: Cameras.normalizeWA }];
+
+    let cameras = [];
+    let anyFound = false;
+    for (const { key, norm } of regions) {
+      const cached = getCachedData(key);
+      if (cached) {
+        cameras = cameras.concat(norm(cached.data));
+        anyFound = true;
+      }
+    }
+    return anyFound ? cameras : null;
+  }
+
+  return { fetchAll, fetchProgressive, clearCache, getCachedImmediate };
 })();
