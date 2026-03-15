@@ -575,6 +575,12 @@ button {
   transform: scale(0.9);
 }
 
+.map-toggle.active {
+  background: var(--green);
+  color: white;
+  border-color: var(--green);
+}
+
 .user-location-marker {
   width: 16px !important;
   height: 16px !important;
@@ -622,102 +628,6 @@ button {
   background: var(--text-muted);
   border-radius: 2px;
   opacity: 0.5;
-}
-
-/* =============================================================
-   Camera Count + Actions
-   ============================================================= */
-
-.camera-count {
-  padding: 12px 16px 8px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.count-text {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
-
-.count-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.action-btn {
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 12px;
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-  transition: transform var(--duration-fast) var(--spring),
-              color var(--duration-fast);
-}
-
-.action-btn:active {
-  transform: scale(0.85);
-}
-
-.action-btn.spinning svg {
-  animation: spin 0.8s linear infinite;
-}
-
-.action-btn.has-filter {
-  color: var(--green);
-  border-color: var(--green);
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.count-number {
-  font-size: 28px;
-  font-weight: 800;
-  letter-spacing: -1px;
-  color: var(--green);
-  line-height: 1;
-}
-
-.count-label {
-  font-size: 13px;
-  color: var(--text-muted);
-  font-weight: 500;
-}
-
-/* Loading state for camera count */
-.camera-count.loading .count-number::after {
-  content: '';
-  display: inline-block;
-  width: 48px;
-  height: 24px;
-  border-radius: 8px;
-  background: linear-gradient(110deg, var(--navy) 30%, var(--surface-raised) 50%, var(--navy) 70%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s linear infinite;
-  vertical-align: middle;
-}
-
-.camera-count.loading .count-label::after {
-  content: 'Loading cameras…';
-}
-
-.camera-count.loading .count-label {
-  font-size: 0; /* hide original text */
-}
-
-.camera-count.loading .count-label::after {
-  font-size: 13px;
-  color: var(--text-muted);
-  font-weight: 500;
 }
 
 /* =============================================================
@@ -1161,94 +1071,6 @@ button {
 }
 
 /* =============================================================
-   Filter Modal
-   ============================================================= */
-
-.filter-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 2000;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--duration) var(--ease-out);
-}
-
-.filter-overlay.active {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.filter-modal {
-  width: 100%;
-  max-width: 480px;
-  background: var(--surface-raised);
-  border-radius: 24px 24px 0 0;
-  padding: 20px 20px calc(20px + var(--safe-bottom));
-  transform: translateY(100%);
-  transition: transform var(--duration-slow) var(--spring);
-}
-
-.filter-overlay.active .filter-modal {
-  transform: translateY(0);
-}
-
-.filter-modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 20px;
-}
-
-.filter-modal-header h3 {
-  font-size: 18px;
-  font-weight: 700;
-}
-
-.filter-section-label {
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-muted);
-  margin-bottom: 10px;
-}
-
-.filter-pills {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.pill {
-  padding: 8px 16px;
-  border-radius: 20px;
-  font-size: 14px;
-  font-weight: 600;
-  background: var(--surface-raised);
-  color: var(--text-secondary);
-  border: 1px solid var(--border);
-  transition: all var(--duration-fast) var(--spring);
-}
-
-.pill:active {
-  transform: scale(0.93);
-}
-
-.pill.active {
-  background: var(--green);
-  color: white;
-  border-color: var(--green);
-}
-
-.pill[data-region="AB"].active { background: var(--ab-color); border-color: var(--ab-color); }
-.pill[data-region="BC"].active { background: var(--bc-color); border-color: var(--bc-color); }
-.pill[data-region="WA"].active { background: var(--wa-color); border-color: var(--wa-color); }
-
-/* =============================================================
    Offline Banner
    ============================================================= */
 
@@ -1359,9 +1181,6 @@ button {
     display: none;
   }
 
-  .map-toggle {
-    display: none;
-  }
 
   .modal {
     max-width: 600px;

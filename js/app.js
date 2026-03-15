@@ -8,7 +8,6 @@ const App = (() => {
   let allCameras = [];
   let filteredCameras = [];
   let currentWaypoints = [];
-  let activeRegion = 'all';
   let fromStop = null;
   let toStop = null;
   let dropdownTarget = null; // 'from' or 'to'
@@ -30,7 +29,6 @@ const App = (() => {
       localStorage.setItem(PREFS_KEY, JSON.stringify({
         from: fromStop?.id || null,
         to: toStop?.id || null,
-        region: activeRegion,
       }));
     } catch (e) { /* ignore */ }
   }
@@ -109,9 +107,6 @@ const App = (() => {
     dom.sheetHandle = $('#sheetHandle');
     dom.cameraList = $('#cameraList');
     dom.skeletonList = $('#skeletonList');
-    dom.cameraCount = $('#cameraCount');
-    dom.countNumber = $('#countNumber');
-    dom.refreshBtn = $('#refreshBtn');
     dom.modalOverlay = $('#modalOverlay');
     dom.modal = $('#modal');
     dom.modalName = $('#modalName');
@@ -122,9 +117,6 @@ const App = (() => {
     dom.autoRefreshToggle = $('#autoRefreshToggle');
     dom.lastRefreshed = $('#lastRefreshed');
     dom.offlineBanner = $('#offlineBanner');
-    dom.filterBtn = $('#filterBtn');
-    dom.filterOverlay = $('#filterOverlay');
-    dom.filterClose = $('#filterClose');
   }
 
   async function init() {
@@ -237,11 +229,6 @@ const App = (() => {
       if (prefs) {
         if (prefs.from) fromStop = allStops.find(s => s.id === prefs.from) || null;
         if (prefs.to) toStop = allStops.find(s => s.id === prefs.to) || null;
-        if (prefs.region && ['all', 'AB', 'BC', 'WA'].includes(prefs.region)) {
-          activeRegion = prefs.region;
-          for (const p of $$('.pill')) p.classList.toggle('active', p.dataset.region === activeRegion);
-          dom.filterBtn.classList.toggle('has-filter', activeRegion !== 'all');
-        }
       }
     }
 
@@ -270,28 +257,6 @@ const App = (() => {
     dom.mapToggle.addEventListener('click', toggleMap);
     dom.centerMapBtn.addEventListener('click', centerMap);
 
-    // Filter modal
-    dom.filterBtn.addEventListener('click', openFilterModal);
-    dom.filterClose.addEventListener('click', closeFilterModal);
-    dom.filterOverlay.addEventListener('click', (e) => {
-      if (e.target === dom.filterOverlay) closeFilterModal();
-    });
-
-    // Filter pills (inside filter modal)
-    for (const pill of $$('.pill')) {
-      pill.addEventListener('click', () => {
-        activeRegion = pill.dataset.region;
-        for (const p of $$('.pill')) p.classList.toggle('active', p.dataset.region === activeRegion);
-        // Update filter button indicator
-        dom.filterBtn.classList.toggle('has-filter', activeRegion !== 'all');
-        applyFilters();
-        closeFilterModal();
-        savePrefs();
-      });
-    }
-
-    // Refresh
-    dom.refreshBtn.addEventListener('click', refreshCameras);
 
     // Modal
     dom.modalClose.addEventListener('click', closeModal);
@@ -304,7 +269,6 @@ const App = (() => {
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         if (dom.modalOverlay.classList.contains('active')) closeModal();
-        else if (dom.filterOverlay.classList.contains('active')) closeFilterModal();
         else if (dom.dropdown.classList.contains('active')) closeDropdown();
       }
     });
@@ -511,17 +475,11 @@ const App = (() => {
     if (cachedCameras && cachedCameras.length > 0) {
       allCameras = cachedCameras;
       applyFilters();
-      // Don't show skeleton — user already sees real content
-      dom.countNumber.classList.remove('loading');
-      dom.cameraCount.classList.remove('loading');
     } else {
       // No cache: show skeleton loading state
       dom.skeletonList.classList.remove('hidden');
       removeCameraCards();
       allCameras = [];
-      dom.countNumber.textContent = '';
-      dom.countNumber.classList.add('loading');
-      dom.cameraCount.classList.add('loading');
     }
 
     // ── Background refresh: fetch fresh data and update in-place ──
@@ -536,8 +494,6 @@ const App = (() => {
       if (!hadCachedData) {
         allCameras = freshCameras.slice();
         applyFilters();
-        dom.countNumber.classList.remove('loading');
-        dom.cameraCount.classList.remove('loading');
       }
     }, neededRegions.size > 0 ? neededRegions : null);
 
@@ -551,19 +507,6 @@ const App = (() => {
       dom.offlineBanner.classList.add('visible');
     }
     dom.skeletonList.classList.add('hidden');
-    dom.countNumber.classList.remove('loading');
-    dom.cameraCount.classList.remove('loading');
-  }
-
-  async function refreshCameras() {
-    dom.refreshBtn.classList.add('spinning');
-    API.clearCache();
-    // Also clear Service Worker image cache so fresh images are fetched
-    if ('caches' in window) {
-      await caches.delete('tripcams-images-v1').catch(() => {});
-    }
-    await loadCameras();
-    setTimeout(() => dom.refreshBtn.classList.remove('spinning'), 500);
   }
 
   let _lastFilteredIds = ''; // Track last rendered set to skip no-op re-renders
@@ -573,11 +516,6 @@ const App = (() => {
     let cameras = currentWaypoints.length > 0
       ? Cameras.filterByCorridor(allCameras, currentWaypoints, routeData?.corridorBuffer || 30)
       : allCameras;
-
-    // Filter by region
-    if (activeRegion !== 'all') {
-      cameras = cameras.filter(c => c.region === activeRegion);
-    }
 
     // Sort by route order
     if (currentWaypoints.length > 0) {
@@ -594,7 +532,6 @@ const App = (() => {
     filteredCameras = cameras;
     renderCameraList(cameras);
     TripMap.setMarkers(cameras, onMarkerClick);
-    dom.countNumber.textContent = cameras.length;
   }
 
   // ── Camera List Rendering ────────────────────────────────────
@@ -880,24 +817,14 @@ const App = (() => {
   }
 
   function toggleMap() {
-    dom.mapContainer.classList.toggle('collapsed');
-    TripMap.invalidateSize();
+    const isSat = TripMap.toggleSatellite();
+    dom.mapToggle.classList.toggle('active', isSat);
   }
 
   function centerMap() {
     if (currentWaypoints.length > 0) {
       TripMap.fitToRoute(currentWaypoints);
     }
-  }
-
-  // ── Filter Modal ─────────────────────────────────────────────
-
-  function openFilterModal() {
-    dom.filterOverlay.classList.add('active');
-  }
-
-  function closeFilterModal() {
-    dom.filterOverlay.classList.remove('active');
   }
 
   // ── Bottom Sheet Drag ────────────────────────────────────────

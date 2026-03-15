@@ -11,10 +11,14 @@ const TripMap = (() => {
   let activeMarkerId = null;
   let _viewportCallback = null;
   let _lastProgrammaticMove = 0;
+  let tileLayer = null;
+  let isSatellite = false;
 
   const TILE_LIGHT = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
   const TILE_DARK = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+  const TILE_SATELLITE = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
   const TILE_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>';
+  const TILE_SAT_ATTR = '&copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics';
 
   function isDarkMode() {
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -26,7 +30,7 @@ const TripMap = (() => {
       attributionControl: false,
     });
 
-    const tileLayer = L.tileLayer(isDarkMode() ? TILE_DARK : TILE_LIGHT, {
+    tileLayer = L.tileLayer(isDarkMode() ? TILE_DARK : TILE_LIGHT, {
       attribution: TILE_ATTR,
       maxZoom: 18,
       subdomains: 'abcd',
@@ -34,7 +38,9 @@ const TripMap = (() => {
 
     // Switch tiles when color scheme changes
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-      tileLayer.setUrl(e.matches ? TILE_DARK : TILE_LIGHT);
+      if (!isSatellite) {
+        tileLayer.setUrl(e.matches ? TILE_DARK : TILE_LIGHT);
+      }
     });
 
     // Zoom control on the right
@@ -315,6 +321,18 @@ const TripMap = (() => {
     }
   }
 
+  function toggleSatellite() {
+    isSatellite = !isSatellite;
+    if (isSatellite) {
+      tileLayer.setUrl(TILE_SATELLITE);
+      tileLayer.options.subdomains = 'abc';
+    } else {
+      tileLayer.setUrl(isDarkMode() ? TILE_DARK : TILE_LIGHT);
+      tileLayer.options.subdomains = 'abcd';
+    }
+    return isSatellite;
+  }
+
   function getMap() {
     return map;
   }
@@ -331,6 +349,7 @@ const TripMap = (() => {
     showUserLocation,
     invalidateSize,
     onViewportChange,
+    toggleSatellite,
     getMap,
   };
 })();
