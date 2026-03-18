@@ -396,9 +396,9 @@ button {
   background: var(--surface-raised) !important;
   color: var(--text) !important;
   border: 1px solid var(--border) !important;
-  width: 36px !important;
-  height: 36px !important;
-  line-height: 36px !important;
+  width: 40px !important;
+  height: 40px !important;
+  line-height: 40px !important;
   font-size: 18px !important;
   border-radius: 12px !important;
 }
@@ -414,6 +414,16 @@ button {
 
 .leaflet-control-zoom a:hover {
   background: var(--navy-card) !important;
+}
+
+.leaflet-control-zoom {
+  transition: opacity var(--duration-fast), visibility var(--duration-fast);
+}
+
+.sheet-expanded .leaflet-control-zoom {
+  opacity: 0 !important;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .leaflet-popup-content-wrapper {
@@ -531,7 +541,7 @@ button {
 
 .map-center-btn {
   position: absolute;
-  bottom: 60px;
+  bottom: 72px;
   right: 12px;
   z-index: 500;
   width: 40px;
@@ -554,7 +564,7 @@ button {
 
 .map-toggle {
   position: absolute;
-  bottom: 12px;
+  bottom: 24px;
   right: 12px;
   z-index: 500;
   width: 40px;
@@ -617,7 +627,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px 0 8px;
+  padding: 10px 0 8px;
   cursor: grab;
   flex-shrink: 0;
 }
