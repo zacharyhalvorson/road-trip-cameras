@@ -1181,6 +1181,9 @@ button {
     display: none;
   }
 
+  .camera-list {
+    padding-top: 12px;
+  }
 
   .modal {
     max-width: 600px;
@@ -1201,7 +1204,8 @@ button {
 /* Large desktop */
 @media (min-width: 1200px) {
   .camera-list {
-    padding: 0 16px;
+    padding: 16px 16px 0;
+    padding-bottom: calc(var(--safe-bottom) + 20px);
   }
 }
 
