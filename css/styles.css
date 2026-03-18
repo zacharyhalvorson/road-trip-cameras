@@ -661,6 +661,42 @@ button {
   padding-bottom: calc(var(--safe-bottom) + 20px);
 }
 
+/* Pull-to-refresh */
+.ptr {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 0;
+  overflow: hidden;
+  transition: height 0.3s var(--ease-out), opacity 0.2s;
+  opacity: 0;
+  flex-shrink: 0;
+}
+
+.ptr.pulling {
+  transition: none;
+}
+
+.ptr.refreshing {
+  height: 48px;
+  opacity: 1;
+}
+
+.ptr-spinner {
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ptr-spinner svg {
+  transition: transform 0.15s ease;
+}
+
+.ptr.refreshing .ptr-spinner svg {
+  animation: spin 0.7s linear infinite;
+}
+
 .camera-card {
   display: flex;
   flex-direction: column;
@@ -1233,6 +1269,10 @@ button {
 
 .fade-in {
   animation: fadeIn var(--duration) var(--ease-out) both;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 @keyframes fadeIn {

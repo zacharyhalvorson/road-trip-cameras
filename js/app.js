@@ -117,6 +117,7 @@ const App = (() => {
     dom.autoRefreshToggle = $('#autoRefreshToggle');
     dom.lastRefreshed = $('#lastRefreshed');
     dom.offlineBanner = $('#offlineBanner');
+    dom.pullToRefresh = $('#pullToRefresh');
   }
 
   async function init() {
@@ -940,16 +941,25 @@ const App = (() => {
 
   function initListScrollExpand() {
     const list = dom.cameraList;
+    const ptr = dom.pullToRefresh;
     let touchStartY = 0;
     let touchStartScrollTop = 0;
     const THRESHOLD = 30; // px of overscroll before triggering
+    const PTR_MAX = 60;   // max pull distance for pull-to-refresh
+    const PTR_TRIGGER = 48; // pull distance to trigger refresh
     let triggered = false;
+    let isPulling = false;
+    let isRefreshing = false;
 
     list.addEventListener('touchstart', (e) => {
       if (isWideLayout()) return;
       touchStartY = e.touches[0].clientY;
       touchStartScrollTop = list.scrollTop;
       triggered = false;
+      if (!isRefreshing && touchStartScrollTop <= 0) {
+        isPulling = true;
+        ptr.classList.add('pulling');
+      }
     }, { passive: true });
 
     list.addEventListener('touchmove', (e) => {
@@ -959,20 +969,79 @@ const App = (() => {
       const delta = y - touchStartY; // positive = finger moving down
 
       if (!sheetExpanded) {
+        // Collapsed & at top: pulling down triggers pull-to-refresh
+        if (isPulling && !isRefreshing && touchStartScrollTop <= 0 && list.scrollTop <= 0 && delta > 0) {
+          const pull = Math.min(delta, PTR_MAX);
+          const progress = pull / PTR_MAX;
+          ptr.style.height = pull + 'px';
+          ptr.style.opacity = progress;
+          // Rotate the arc based on pull progress
+          ptr.querySelector('svg').style.transform = `rotate(${progress * 360}deg)`;
+          if (pull >= PTR_TRIGGER) {
+            triggered = true;
+          }
+          return;
+        }
         // Collapsed: any upward scroll (finger moves up) expands the sheet
         if (delta < -THRESHOLD) {
           triggered = true;
+          resetPull();
           expandSheet();
         }
       } else {
-        // Expanded & at the very top: pulling down past top collapses
-        if (touchStartScrollTop <= 0 && list.scrollTop <= 0 && delta > THRESHOLD) {
+        // Expanded & at the very top: pulling down triggers pull-to-refresh
+        if (isPulling && !isRefreshing && touchStartScrollTop <= 0 && list.scrollTop <= 0 && delta > 0) {
+          const pull = Math.min(delta, PTR_MAX);
+          const progress = pull / PTR_MAX;
+          ptr.style.height = pull + 'px';
+          ptr.style.opacity = progress;
+          ptr.querySelector('svg').style.transform = `rotate(${progress * 360}deg)`;
+          if (pull >= PTR_TRIGGER) {
+            triggered = true;
+          }
+          return;
+        }
+        // Expanded & at top: pulling down past threshold without PTR collapses
+        if (touchStartScrollTop <= 0 && list.scrollTop <= 0 && delta > THRESHOLD && !isPulling) {
           triggered = true;
-          list.scrollTop = 0;
           collapseSheet();
         }
       }
     }, { passive: true });
+
+    list.addEventListener('touchend', () => {
+      if (!isPulling) return;
+      ptr.classList.remove('pulling');
+
+      if (triggered && !isRefreshing) {
+        // Trigger refresh
+        isRefreshing = true;
+        ptr.style.height = '';
+        ptr.style.opacity = '';
+        ptr.querySelector('svg').style.transform = '';
+        ptr.classList.add('refreshing');
+        doRefresh().then(() => {
+          ptr.classList.remove('refreshing');
+          isRefreshing = false;
+        });
+      } else {
+        resetPull();
+      }
+      isPulling = false;
+    }, { passive: true });
+
+    function resetPull() {
+      isPulling = false;
+      ptr.classList.remove('pulling');
+      ptr.style.height = '';
+      ptr.style.opacity = '';
+      ptr.querySelector('svg').style.transform = '';
+    }
+
+    async function doRefresh() {
+      _lastFilteredIds = '';
+      await loadCameras();
+    }
   }
 
   // ── Modal ────────────────────────────────────────────────────
