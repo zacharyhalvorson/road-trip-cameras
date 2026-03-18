@@ -129,6 +129,9 @@ const App = (() => {
     function syncExpandedClass() {
       if (isWideLayout()) {
         document.body.classList.add('sheet-expanded');
+        dom.cameraList.style.overflowY = '';
+      } else if (!sheetExpanded) {
+        dom.cameraList.style.overflowY = 'hidden';
       }
     }
     syncExpandedClass();
@@ -279,6 +282,7 @@ const App = (() => {
 
     // Bottom sheet drag
     initSheetDrag();
+    initListScrollExpand();
   }
 
   // ── Route Selection ──────────────────────────────────────────
@@ -827,6 +831,49 @@ const App = (() => {
     }
   }
 
+  // ── Sheet expand / collapse helpers ─────────────────────────
+
+  function expandSheet() {
+    const headerHeight = document.querySelector('.header').offsetHeight;
+    const mapContainer = dom.mapContainer;
+    const sheet = dom.sheet;
+
+    mapContainer.style.height = '20vh';
+    sheet.style.top = `calc(${headerHeight}px + 20vh)`;
+    sheetExpanded = true;
+    document.body.classList.add('sheet-expanded');
+    dom.cameraList.style.overflowY = '';
+    TripMap.invalidateSize();
+    setTimeout(() => {
+      const visibleCards = dom.cameraList.querySelectorAll('.camera-card');
+      const visibleIds = new Set();
+      for (const card of visibleCards) {
+        const rect = card.getBoundingClientRect();
+        const listRect = dom.cameraList.getBoundingClientRect();
+        if (rect.top < listRect.bottom && rect.bottom > listRect.top) {
+          visibleIds.add(card.dataset.id);
+        }
+      }
+      if (visibleIds.size > 0) {
+        TripMap.fitToVisible(visibleIds);
+      }
+    }, 200);
+  }
+
+  function collapseSheet() {
+    const headerHeight = document.querySelector('.header').offsetHeight;
+    const mapContainer = dom.mapContainer;
+    const sheet = dom.sheet;
+
+    mapContainer.style.height = '50vh';
+    sheet.style.top = `calc(${headerHeight}px + 50vh)`;
+    sheetExpanded = false;
+    document.body.classList.remove('sheet-expanded');
+    if (!isWideLayout()) dom.cameraList.style.overflowY = 'hidden';
+    TripMap.invalidateSize();
+    setTimeout(() => TripMap.fitToRoute(currentWaypoints), 200);
+  }
+
   // ── Bottom Sheet Drag ────────────────────────────────────────
 
   function initSheetDrag() {
@@ -874,37 +921,10 @@ const App = (() => {
       const windowHeight = window.innerHeight;
       const midpoint = headerHeight + (windowHeight - headerHeight) * 0.4;
 
-      // Snap to either expanded (mostly list) or collapsed (mostly map)
       if (currentTop < midpoint) {
-        // Show mostly list — zoom map to visible cameras
-        mapContainer.style.height = '20vh';
-        sheet.style.top = `calc(${headerHeight}px + 20vh)`;
-        sheetExpanded = true;
-        document.body.classList.add('sheet-expanded');
-        TripMap.invalidateSize();
-        // After map resizes, fit to currently visible cards
-        setTimeout(() => {
-          const visibleCards = dom.cameraList.querySelectorAll('.camera-card');
-          const visibleIds = new Set();
-          for (const card of visibleCards) {
-            const rect = card.getBoundingClientRect();
-            const listRect = dom.cameraList.getBoundingClientRect();
-            if (rect.top < listRect.bottom && rect.bottom > listRect.top) {
-              visibleIds.add(card.dataset.id);
-            }
-          }
-          if (visibleIds.size > 0) {
-            TripMap.fitToVisible(visibleIds);
-          }
-        }, 200);
+        expandSheet();
       } else {
-        // Show mostly map — zoom out to full route
-        mapContainer.style.height = '50vh';
-        sheet.style.top = `calc(${headerHeight}px + 50vh)`;
-        sheetExpanded = false;
-        document.body.classList.remove('sheet-expanded');
-        TripMap.invalidateSize();
-        setTimeout(() => TripMap.fitToRoute(currentWaypoints), 200);
+        collapseSheet();
       }
     }
 
@@ -914,6 +934,45 @@ const App = (() => {
     document.addEventListener('mousemove', onMove);
     document.addEventListener('touchend', onEnd);
     document.addEventListener('mouseup', onEnd);
+  }
+
+  // ── Scroll-to-expand / scroll-to-collapse on narrow viewports ─
+
+  function initListScrollExpand() {
+    const list = dom.cameraList;
+    let touchStartY = 0;
+    let touchStartScrollTop = 0;
+    const THRESHOLD = 30; // px of overscroll before triggering
+    let triggered = false;
+
+    list.addEventListener('touchstart', (e) => {
+      if (isWideLayout()) return;
+      touchStartY = e.touches[0].clientY;
+      touchStartScrollTop = list.scrollTop;
+      triggered = false;
+    }, { passive: true });
+
+    list.addEventListener('touchmove', (e) => {
+      if (isWideLayout() || triggered) return;
+
+      const y = e.touches[0].clientY;
+      const delta = y - touchStartY; // positive = finger moving down
+
+      if (!sheetExpanded) {
+        // Collapsed: any upward scroll (finger moves up) expands the sheet
+        if (delta < -THRESHOLD) {
+          triggered = true;
+          expandSheet();
+        }
+      } else {
+        // Expanded & at the very top: pulling down past top collapses
+        if (touchStartScrollTop <= 0 && list.scrollTop <= 0 && delta > THRESHOLD) {
+          triggered = true;
+          list.scrollTop = 0;
+          collapseSheet();
+        }
+      }
+    }, { passive: true });
   }
 
   // ── Modal ────────────────────────────────────────────────────
