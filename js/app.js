@@ -163,7 +163,7 @@ const App = (() => {
       for (const card of cards) {
         if (visibleSet.has(card.dataset.id)) {
           _mapInitiatedScroll = true;
-          card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          card.scrollIntoView({ behavior: 'smooth', block: 'center' });
           card.classList.add('highlighted');
           setTimeout(() => card.classList.remove('highlighted'), 2000);
           // Focus this camera's marker on the map
@@ -479,7 +479,7 @@ const App = (() => {
     }
 
     if (nearestCard) {
-      nearestCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      nearestCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
       nearestCard.classList.add('highlighted');
       setTimeout(() => nearestCard.classList.remove('highlighted'), 2000);
       TripMap.panTo(userLocation.lat, userLocation.lon);
@@ -769,11 +769,12 @@ const App = (() => {
     });
 
     // ── Trackpad two-finger horizontal swipe ──
-    // Page once per gesture, then hard-lock until 500ms of silence so
-    // macOS trackpad inertia never triggers a second page change.
+    // Page once per gesture, then lock until inertia dies.
+    // Uses idle-based unlock: only re-arms after 300ms of no wheel events,
+    // so macOS trackpad inertia can never trigger a second page change.
     let wheelAccumX = 0;
-    let wheelLockUntil = 0; // timestamp — ignore all events before this
-    let wheelResetTimer = null;
+    let wheelLocked = false;
+    let wheelIdleTimer = null;
     const clusterThumb = card.querySelector('.cluster-thumb');
 
     clusterThumb.addEventListener('wheel', (e) => {
@@ -781,19 +782,21 @@ const App = (() => {
       e.preventDefault();
       e.stopPropagation();
 
-      const now = Date.now();
-      if (now < wheelLockUntil) return;
+      // Every event resets the idle timer; unlock after 300ms of silence
+      clearTimeout(wheelIdleTimer);
+      wheelIdleTimer = setTimeout(() => { wheelAccumX = 0; wheelLocked = false; }, 300);
+
+      if (wheelLocked) return;
 
       wheelAccumX += e.deltaX;
-
-      // Reset accumulator if gesture pauses (new swipe)
-      clearTimeout(wheelResetTimer);
-      wheelResetTimer = setTimeout(() => { wheelAccumX = 0; }, 150);
 
       if (Math.abs(wheelAccumX) >= 60) {
         const dir = wheelAccumX > 0 ? 1 : -1;
         const targetPage = currentPage + dir;
+
+        // Lock immediately — all subsequent inertia events are ignored
         wheelAccumX = 0;
+        wheelLocked = true;
 
         if (targetPage < 0 || targetPage >= cams.length) {
           // Rubber band — shift track slightly then spring back
@@ -807,9 +810,6 @@ const App = (() => {
         } else {
           goToPage(targetPage);
         }
-
-        // Hard lock — ignore everything for 500ms
-        wheelLockUntil = now + 500;
       }
     }, { passive: false });
 
@@ -1573,7 +1573,7 @@ const App = (() => {
 
       // Trackpad two-finger horizontal swipe
       // Page once per gesture, then lock until inertia dies.
-      // Uses a short cooldown (250ms) so deliberate back-and-forth swiping feels snappy.
+      // Uses idle-based unlock (300ms) so deliberate back-and-forth swiping feels snappy.
       let wheelAccumX = 0;
       let wheelLocked = false;
       let wheelIdleTimer = null;
@@ -1583,9 +1583,9 @@ const App = (() => {
         e.preventDefault();
         e.stopPropagation();
 
-        // Every event resets the idle timer; unlock after 250ms of silence
+        // Every event resets the idle timer; unlock after 300ms of silence
         clearTimeout(wheelIdleTimer);
-        wheelIdleTimer = setTimeout(() => { wheelAccumX = 0; wheelLocked = false; }, 250);
+        wheelIdleTimer = setTimeout(() => { wheelAccumX = 0; wheelLocked = false; }, 300);
 
         if (wheelLocked) return;
 
