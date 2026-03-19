@@ -1036,7 +1036,7 @@ button {
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
   opacity: 0;
   pointer-events: none;
@@ -1346,10 +1346,6 @@ button {
     border-radius: 16px;
     margin: auto;
     max-height: 90vh;
-  }
-
-  .modal-overlay {
-    align-items: center;
   }
 
   .modal-transition-clone.to-modal {
