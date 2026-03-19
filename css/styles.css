@@ -632,13 +632,13 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 10px 0 8px;
+  padding: 10px 0;
   cursor: grab;
   border-radius: 20px 20px 0 0;
 }
 
 .sheet-handle-bar {
-  width: 36px;
+  width: 48px;
   height: 4px;
   background: var(--text-muted);
   border-radius: 2px;
