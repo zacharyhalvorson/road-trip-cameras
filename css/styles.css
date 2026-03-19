@@ -727,7 +727,7 @@ button {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
-  padding: 28px 12px 0;
+  padding: 24px 12px 0;
   padding-bottom: calc(var(--safe-bottom) + 20px);
   scrollbar-width: none;
 }
@@ -1504,7 +1504,11 @@ button {
   transform: translateY(-50%) scale(0.9);
 }
 
-/* Dot indicators */
+/* Dot indicators (hidden in list cards, visible in modal) */
+.cluster-card .cluster-dots {
+  display: none;
+}
+
 .cluster-dots {
   position: absolute;
   bottom: 36px;
