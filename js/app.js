@@ -18,6 +18,8 @@ const App = (() => {
   let _mapInitiatedScroll = false; // true when map viewport change is scrolling the list
   let _userHasInteractedWithMap = false; // true after first user pan/zoom on the map
   let _focusedCameraId = null; // the camera card currently centered in the list
+  let _topCameraId = null; // the camera card at the top of the visible list
+  let _hoveredCameraId = null; // camera card the user is hovering over
   let userLocation = null; // { lat, lon, nearestStop } when geolocation available
 
   const PREFS_KEY = 'tripcams_prefs';
@@ -168,6 +170,9 @@ const App = (() => {
           card.scrollIntoView({ behavior: 'smooth', block: 'start' });
           card.classList.add('highlighted');
           setTimeout(() => card.classList.remove('highlighted'), 2000);
+          // Focus this camera's marker on the map
+          _topCameraId = card.dataset.id;
+          TripMap.focusMarker(card.dataset.id);
           // Clear flag after scroll settles
           setTimeout(() => { _mapInitiatedScroll = false; }, 800);
           break;
@@ -622,6 +627,15 @@ const App = (() => {
         </div>
       `;
       card.addEventListener('click', () => openModal(cam));
+      card.addEventListener('mouseenter', () => {
+        _hoveredCameraId = cam.id;
+        TripMap.focusMarker(cam.id);
+      });
+      card.addEventListener('mouseleave', () => {
+        _hoveredCameraId = null;
+        // Restore focus to the top camera
+        if (_topCameraId) TripMap.focusMarker(_topCameraId);
+      });
     } else {
       card.className = 'camera-card camera-card-disabled';
       card.innerHTML = `
@@ -822,12 +836,42 @@ const App = (() => {
         }
       }
 
+      // Update top camera marker immediately for responsiveness
+      updateTopCamera();
+
       clearTimeout(focusDebounce);
       focusDebounce = setTimeout(() => {
         updateFocusedCamera();
       }, 150);
     };
     dom.cameraList.addEventListener('scroll', _scrollTrackingHandler, { passive: true });
+  }
+
+  // Find the card at the top of the visible scroll area and focus its marker.
+  function updateTopCamera() {
+    const listRect = dom.cameraList.getBoundingClientRect();
+    const topEdge = listRect.top;
+    const cards = dom.cameraList.querySelectorAll('.camera-card');
+
+    let topCard = null;
+    for (const card of cards) {
+      const rect = card.getBoundingClientRect();
+      // First card whose bottom is below the list top (i.e. it's visible)
+      if (rect.bottom > topEdge + 10) {
+        topCard = card;
+        break;
+      }
+    }
+
+    if (!topCard) return;
+    const camId = topCard.dataset.id;
+    if (camId === _topCameraId) return;
+    _topCameraId = camId;
+
+    // Only set map focus if user isn't hovering a card
+    if (!_hoveredCameraId) {
+      TripMap.focusMarker(camId);
+    }
   }
 
   function updateFocusedCamera() {

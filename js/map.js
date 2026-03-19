@@ -177,6 +177,7 @@ const TripMap = (() => {
     markerCluster.clearLayers();
     markers.clear();
     activeMarkerId = null;
+    focusedMarkerId = null;
 
     for (const cam of cameras) {
       if (cam.status === 'inactive') continue;
@@ -229,6 +230,31 @@ const TripMap = (() => {
   }
 
   let activeVisibleIds = new Set();
+  let focusedMarkerId = null;
+
+  // Highlight a single marker as "focused" — the camera at the top of the
+  // scroll list or the one the user is hovering over. Visually distinct from
+  // the regular "active" state that all visible markers share.
+  function focusMarker(camId) {
+    if (camId === focusedMarkerId) return;
+    // Remove previous focus
+    if (focusedMarkerId && markers.has(focusedMarkerId)) {
+      const el = markers.get(focusedMarkerId).getElement?.();
+      if (el) el.classList.remove('map-focused');
+    }
+    focusedMarkerId = camId;
+    if (!camId || !markers.has(camId)) return;
+    const el = markers.get(camId).getElement?.();
+    if (el) el.classList.add('map-focused');
+  }
+
+  function unfocusMarker() {
+    if (focusedMarkerId && markers.has(focusedMarkerId)) {
+      const el = markers.get(focusedMarkerId).getElement?.();
+      if (el) el.classList.remove('map-focused');
+    }
+    focusedMarkerId = null;
+  }
 
   function highlightVisible(visibleIds) {
     // Remove old highlights
@@ -246,6 +272,15 @@ const TripMap = (() => {
       }
     }
     activeVisibleIds = new Set(visibleIds);
+
+    // Re-apply focused marker class — the element may have just become
+    // available after being unclustered by the zoom-to-visible logic.
+    if (focusedMarkerId && markers.has(focusedMarkerId)) {
+      const el = markers.get(focusedMarkerId).getElement?.();
+      if (el && !el.classList.contains('map-focused')) {
+        el.classList.add('map-focused');
+      }
+    }
   }
 
   // Fit map to show the visible cameras with enough context
@@ -396,6 +431,8 @@ const TripMap = (() => {
     highlightMarker,
     highlightMarkerVisual,
     highlightVisible,
+    focusMarker,
+    unfocusMarker,
     fitToVisible,
     zoomToVisible,
     panTo,
