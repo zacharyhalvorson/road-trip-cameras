@@ -1504,7 +1504,11 @@ button {
   transform: translateY(-50%) scale(0.9);
 }
 
-/* Dot indicators */
+/* Dot indicators (hidden in list cards, visible in modal) */
+.cluster-card .cluster-dots {
+  display: none;
+}
+
 .cluster-dots {
   position: absolute;
   bottom: 36px;
