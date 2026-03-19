@@ -317,12 +317,105 @@ const Cameras = (() => {
     return nearest;
   }
 
+  // ── Clustering ────────────────────────────────────────────────
+
+  // Group route-sorted cameras within `thresholdKm` of each other.
+  // Because cameras are already sorted by route position, nearby cameras
+  // in the same physical location will be adjacent in the array.
+  function clusterCameras(cameras, thresholdKm = 0.1) {
+    if (cameras.length === 0) return [];
+    const clusters = [];
+    let current = { cameras: [cameras[0]], lat: cameras[0].lat, lon: cameras[0].lon };
+
+    for (let i = 1; i < cameras.length; i++) {
+      const cam = cameras[i];
+      const dist = haversine(current.lat, current.lon, cam.lat, cam.lon);
+      if (dist <= thresholdKm) {
+        current.cameras.push(cam);
+      } else {
+        clusters.push(current);
+        current = { cameras: [cam], lat: cam.lat, lon: cam.lon };
+      }
+    }
+    clusters.push(current);
+    return clusters;
+  }
+
+  // ── Direction Parsing ─────────────────────────────────────────
+
+  // Map cardinal/intercardinal direction strings to bearings (degrees from north)
+  const DIRECTION_BEARINGS = {
+    'n': 0, 'north': 0, 'northbound': 0,
+    'ne': 45, 'northeast': 45, 'northeastbound': 45,
+    'e': 90, 'east': 90, 'eastbound': 90,
+    'se': 135, 'southeast': 135, 'southeastbound': 135,
+    's': 180, 'south': 180, 'southbound': 180,
+    'sw': 225, 'southwest': 225, 'southwestbound': 225,
+    'w': 270, 'west': 270, 'westbound': 270,
+    'nw': 315, 'northwest': 315, 'northwestbound': 315,
+  };
+
+  function directionToBearing(dirStr) {
+    if (!dirStr) return null;
+    const key = dirStr.trim().toLowerCase();
+    return DIRECTION_BEARINGS[key] ?? null;
+  }
+
+  // Bearing from point A to point B (degrees 0-360, 0 = north)
+  function bearingBetween(lat1, lon1, lat2, lon2) {
+    const dLon = toRad(lon2 - lon1);
+    const y = Math.sin(dLon) * Math.cos(toRad(lat2));
+    const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+              Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
+    const brng = Math.atan2(y, x) * 180 / Math.PI;
+    return (brng + 360) % 360;
+  }
+
+  // Smallest angular difference between two bearings (0-180)
+  function angleDiff(a, b) {
+    const diff = Math.abs(a - b) % 360;
+    return diff > 180 ? 360 - diff : diff;
+  }
+
+  // Compute the route's travel bearing at a given position along the waypoints.
+  // Uses the two waypoints bracketing the cluster to determine forward direction.
+  function travelBearingAt(lat, lon, waypoints) {
+    if (waypoints.length < 2) return 0;
+    const pos = routePosition(lat, lon, waypoints);
+    const idx = Math.floor(pos);
+    const safeIdx = Math.min(idx, waypoints.length - 2);
+    const a = waypoints[safeIdx];
+    const b = waypoints[safeIdx + 1];
+    return bearingBetween(a.lat, a.lon, b.lat, b.lon);
+  }
+
+  // Sort cameras within a cluster so the one facing the travel direction comes first.
+  // Cameras with unknown direction are pushed to the end.
+  // When `reversed` is true, the user is traveling opposite to waypoint order.
+  function sortClusterByTravelDirection(cluster, waypoints, reversed) {
+    if (cluster.cameras.length <= 1) return;
+    let bearing = travelBearingAt(cluster.lat, cluster.lon, waypoints);
+    if (reversed) bearing = (bearing + 180) % 360;
+    cluster.cameras.sort((a, b) => {
+      const aBearing = directionToBearing(a.direction);
+      const bBearing = directionToBearing(b.direction);
+      // Unknown directions go last
+      if (aBearing === null && bBearing === null) return 0;
+      if (aBearing === null) return 1;
+      if (bBearing === null) return -1;
+      // Sort by closest to travel bearing
+      return angleDiff(aBearing, bearing) - angleDiff(bBearing, bearing);
+    });
+  }
+
   return {
     normalizeAlberta,
     normalizeBC,
     normalizeWA,
     filterByCorridor,
     sortByRoute,
+    clusterCameras,
+    sortClusterByTravelDirection,
     findRoute,
     getAllStops,
     nearestStop,

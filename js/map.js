@@ -55,12 +55,11 @@ const TripMap = (() => {
       spiderfyOnMaxZoom: true,
       showCoverageOnHover: false,
       zoomToBoundsOnClick: true,
-      iconCreateFunction: (cluster) => {
-        const count = cluster.getChildCount();
+      iconCreateFunction: () => {
         return L.divIcon({
-          html: `<div>${count}</div>`,
+          html: '',
           className: 'marker-cluster',
-          iconSize: L.point(36, 36),
+          iconSize: L.point(20, 20),
         });
       },
     });
@@ -256,6 +255,25 @@ const TripMap = (() => {
     focusedMarkerId = null;
   }
 
+  let hoveredMarkerId = null;
+
+  function hoverMarker(camId) {
+    if (camId === hoveredMarkerId) return;
+    unhoverMarker();
+    hoveredMarkerId = camId;
+    if (!camId || !markers.has(camId)) return;
+    const el = markers.get(camId).getElement?.();
+    if (el) el.classList.add('map-hovered');
+  }
+
+  function unhoverMarker() {
+    if (hoveredMarkerId && markers.has(hoveredMarkerId)) {
+      const el = markers.get(hoveredMarkerId).getElement?.();
+      if (el) el.classList.remove('map-hovered');
+    }
+    hoveredMarkerId = null;
+  }
+
   function highlightVisible(visibleIds) {
     // Remove old highlights
     for (const id of activeVisibleIds) {
@@ -433,6 +451,8 @@ const TripMap = (() => {
     highlightVisible,
     focusMarker,
     unfocusMarker,
+    hoverMarker,
+    unhoverMarker,
     fitToVisible,
     zoomToVisible,
     panTo,

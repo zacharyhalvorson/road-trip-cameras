@@ -479,6 +479,12 @@ button {
   box-shadow: 0 0 0 4px rgba(45, 184, 75, 0.3), 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
+.camera-marker.map-hovered {
+  transform: scale(2);
+  z-index: 10002 !important;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.5), 0 0 12px rgba(45, 184, 75, 0.4), 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
 .camera-marker.map-focused {
   transform: scale(2.2);
   z-index: 10001 !important;
@@ -512,6 +518,17 @@ button {
   z-index: 10000 !important;
 }
 
+/* Hovered marker: list item mouse hover — subtle pop */
+.sheet-expanded .camera-marker.map-hovered {
+  width: 22px !important;
+  height: 22px !important;
+  margin-left: -11px !important;
+  margin-top: -11px !important;
+  opacity: 1;
+  z-index: 10002 !important;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.5), 0 0 12px rgba(45, 184, 75, 0.4), 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+
 /* Focused marker: the camera at the top of the list or hovered in the list */
 .sheet-expanded .camera-marker.map-focused {
   width: 24px !important;
@@ -532,15 +549,10 @@ button {
 }
 
 .marker-cluster {
-  background: rgba(45, 184, 75, 0.2) !important;
-}
-
-.marker-cluster div {
   background: var(--green) !important;
-  color: white !important;
-  font-weight: 700 !important;
-  font-size: 13px !important;
-  font-family: var(--font) !important;
+  border: 2px solid white !important;
+  border-radius: 50% !important;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.3) !important;
 }
 
 .popup-content {
@@ -1379,6 +1391,185 @@ button {
 .camera-card:nth-child(8) { animation-delay: 210ms; }
 .camera-card:nth-child(9) { animation-delay: 240ms; }
 .camera-card:nth-child(10) { animation-delay: 270ms; }
+
+/* =============================================================
+   Cluster Card Pagination
+   ============================================================= */
+
+.cluster-thumb {
+  position: relative;
+  overflow: hidden;
+}
+
+.cluster-track {
+  display: flex;
+  width: 100%;
+  transition: transform 0.3s var(--spring);
+  will-change: transform;
+}
+
+.cluster-slide {
+  flex: 0 0 100%;
+  width: 100%;
+  min-width: 0;
+  position: relative;
+  aspect-ratio: 16 / 9;
+}
+
+.cluster-slide img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Direction label inside cluster slides */
+.cluster-direction {
+  font-weight: 400;
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+/* Arrow buttons */
+.cluster-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 3;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity var(--duration-fast) ease;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.cluster-card:hover .cluster-arrow {
+  opacity: 1;
+}
+
+.cluster-arrow[style*="display:none"] {
+  opacity: 0 !important;
+  pointer-events: none;
+}
+
+.cluster-arrow-prev { left: 6px; }
+.cluster-arrow-next { right: 6px; }
+
+.cluster-arrow:hover {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.cluster-arrow:active {
+  transform: translateY(-50%) scale(0.9);
+}
+
+/* Dot indicators */
+.cluster-dots {
+  position: absolute;
+  bottom: 36px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 5px;
+  z-index: 3;
+}
+
+.cluster-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+  padding: 0;
+  transition: background var(--duration-fast) ease, transform var(--duration-fast) ease;
+}
+
+.cluster-dot.active {
+  background: #fff;
+  transform: scale(1.3);
+}
+
+.cluster-dot:hover {
+  background: rgba(255, 255, 255, 0.8);
+}
+
+/* Cluster count badge */
+.cluster-count {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+/* Modal cluster navigation */
+.modal-cluster-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 6px 0 2px;
+}
+
+.modal-cluster-nav button {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--text);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity var(--duration-fast) ease;
+}
+
+.modal-cluster-nav button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.modal-cluster-nav button:not(:disabled):hover {
+  background: var(--green-subtle);
+}
+
+.modal-cluster-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  min-width: 40px;
+  text-align: center;
+}
+
+/* Touch devices: always show arrows on clusters */
+@media (hover: none) {
+  .cluster-card .cluster-arrow {
+    opacity: 0.8;
+  }
+}
 
 /* Reduce motion for accessibility */
 @media (prefers-reduced-motion: reduce) {
