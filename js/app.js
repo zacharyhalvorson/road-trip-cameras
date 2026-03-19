@@ -1063,6 +1063,21 @@ const App = (() => {
       _lastFilteredIds = '';
       await loadCameras();
     }
+
+    // Wheel events (trackpad / mouse scroll) — expand sheet on scroll-up when collapsed
+    list.addEventListener('wheel', (e) => {
+      if (isWideLayout()) return;
+
+      if (!sheetExpanded && e.deltaY < 0) {
+        // Scrolling up while collapsed — expand the sheet
+        e.preventDefault();
+        expandSheet();
+      } else if (sheetExpanded && list.scrollTop <= 0 && e.deltaY > 0) {
+        // Scrolling down at top while expanded — collapse the sheet
+        e.preventDefault();
+        collapseSheet();
+      }
+    }, { passive: false });
   }
 
   // ── Modal ────────────────────────────────────────────────────
