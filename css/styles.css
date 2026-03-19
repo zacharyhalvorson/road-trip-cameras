@@ -762,8 +762,25 @@ button {
   opacity: 1;
 }
 
-/* Centre spinner between handle and first card when sheet is collapsed */
-.sheet.peeking .ptr.refreshing,
+/* Floating spinner shown after pull-to-refresh snap-back (no layout shift) */
+.ptr.loading {
+  position: absolute;
+  left: 0;
+  right: 0;
+  /* Centre vertically between handle and bottom of peeking sheet */
+  top: calc(50% + 12px);
+  transform: translateY(-50%);
+  height: auto !important;
+  overflow: visible;
+  opacity: 1;
+  z-index: 3;
+  pointer-events: none;
+}
+.ptr.loading .ptr-spinner svg {
+  animation: spin 0.7s linear infinite;
+}
+
+/* Centre pull spinner between handle and first card when sheet is collapsed */
 .sheet.peeking .ptr.pulling {
   margin-top: 20px;
 }

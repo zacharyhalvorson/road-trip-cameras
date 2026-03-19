@@ -1297,8 +1297,14 @@ const App = (() => {
           ptr.style.height = pull + 'px';
           ptr.style.opacity = progress;
           ptr.querySelector('svg').style.transform = `rotate(${progress * 360}deg)`;
-          if (pull >= PTR_TRIGGER) {
+          if (pull >= PTR_TRIGGER && !triggered) {
             triggered = true;
+            // Start fetch immediately so it can finish before release
+            isRefreshing = true;
+            doRefresh().then(() => {
+              isRefreshing = false;
+              ptr.classList.remove('loading');
+            });
           }
         }
         return;
@@ -1316,21 +1322,15 @@ const App = (() => {
 
     document.addEventListener('touchend', () => {
       if (!isPulling) return;
-      ptr.classList.remove('pulling');
 
-      if (triggered && !isRefreshing) {
-        isRefreshing = true;
-        ptr.style.height = '';
-        ptr.style.opacity = '';
-        ptr.querySelector('svg').style.transform = '';
-        ptr.classList.add('refreshing');
-        doRefresh().then(() => {
-          ptr.classList.remove('refreshing');
-          isRefreshing = false;
-        });
-      } else {
-        resetPull();
+      // Always snap the pull visual back
+      resetPull();
+
+      // If refresh is still in progress, show a non-intrusive floating spinner
+      if (isRefreshing) {
+        ptr.classList.add('loading');
       }
+
       isPulling = false;
     }, { passive: true });
 
@@ -1382,9 +1382,9 @@ const App = (() => {
             wheelAccum = 0;
             wheelCooldown = true;
             isRefreshing = true;
-            ptr.classList.add('refreshing');
+            ptr.classList.add('loading');
             doRefresh().then(() => {
-              ptr.classList.remove('refreshing');
+              ptr.classList.remove('loading');
               isRefreshing = false;
             });
             setTimeout(() => { wheelCooldown = false; }, WHEEL_COOLDOWN_MS);
