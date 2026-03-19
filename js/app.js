@@ -7,6 +7,8 @@ const App = (() => {
   let allStops = [];
   let allCameras = [];
   let filteredCameras = [];
+  let filteredClusters = []; // Array of { cameras: [...], lat, lon } cluster objects
+  let _clusterByCamId = new Map(); // camera id -> cluster index for quick lookup
   let currentWaypoints = [];
   let currentRouteGeometry = null; // Dense OSRM road geometry for precise filtering
   let fromStop = null;
@@ -576,7 +578,30 @@ const App = (() => {
     _lastFilteredIds = newIds;
 
     filteredCameras = cameras;
-    renderCameraList(cameras);
+
+    // Cluster nearby cameras and sort each cluster by travel direction
+    const sortPath = filterPath.length > 0 ? filterPath : currentWaypoints;
+    // Detect if user is traveling opposite to the waypoint order.
+    // Waypoints are always in geographic route order; if fromStop is closer
+    // to the end of the waypoints, the travel direction is reversed.
+    let reversed = false;
+    if (fromStop && sortPath.length >= 2) {
+      const first = sortPath[0];
+      const last = sortPath[sortPath.length - 1];
+      const dFromFirst = Cameras.haversine(fromStop.lat, fromStop.lon, first.lat, first.lon);
+      const dFromLast = Cameras.haversine(fromStop.lat, fromStop.lon, last.lat, last.lon);
+      reversed = dFromLast < dFromFirst;
+    }
+    filteredClusters = Cameras.clusterCameras(cameras);
+    _clusterByCamId = new Map();
+    filteredClusters.forEach((cluster, idx) => {
+      if (sortPath.length >= 2) {
+        Cameras.sortClusterByTravelDirection(cluster, sortPath, reversed);
+      }
+      cluster.cameras.forEach(cam => _clusterByCamId.set(cam.id, idx));
+    });
+
+    renderCameraList(filteredClusters);
     TripMap.setMarkers(cameras, onMarkerClick);
   }
 
@@ -630,10 +655,11 @@ const App = (() => {
       card.addEventListener('mouseenter', () => {
         _hoveredCameraId = cam.id;
         TripMap.focusMarker(cam.id);
+        TripMap.hoverMarker(cam.id);
       });
       card.addEventListener('mouseleave', () => {
         _hoveredCameraId = null;
-        // Restore focus to the top camera
+        TripMap.unhoverMarker();
         if (_topCameraId) TripMap.focusMarker(_topCameraId);
       });
     } else {
@@ -649,13 +675,195 @@ const App = (() => {
     return card;
   }
 
+  // Build a paginated cluster card with scroll-snap slides for each camera
+  function buildClusterCard(cluster, index, showRegion) {
+    const cams = cluster.cameras;
+    const firstCam = cams[0];
+    const card = document.createElement('div');
+    card.className = 'camera-card cluster-card';
+    card.dataset.id = firstCam.id; // primary camera id for map sync
+    card.dataset.clusterIds = cams.map(c => c.id).join(',');
+    card.style.animationDelay = `${Math.min(index * 30, 300)}ms`;
+
+    const regionBadge = showRegion ? `<span class="thumb-region ${firstCam.region}">${firstCam.region}</span>` : '';
+
+    // Build slides HTML
+    const slidesHtml = cams.map((cam, i) => {
+      const imgSrc = cam.thumbnailUrl || cam.imageUrl;
+      // Only show direction label if meaningful and not already in the camera name
+      const dir = cam.direction || '';
+      const nameLower = cam.name.toLowerCase();
+      const showDir = dir && dir.toLowerCase() !== 'unknown' && !nameLower.includes(dir.toLowerCase());
+      return `
+        <div class="cluster-slide" data-cam-id="${cam.id}" data-slide-idx="${i}">
+          <img src="img/placeholder.svg"
+               data-src="${imgSrc}"
+               alt="${cam.name}"
+               width="640" height="360"
+               loading="lazy">
+          <div class="thumb-overlay">
+            ${i === 0 ? regionBadge : (showRegion ? `<span class="thumb-region ${cam.region}">${cam.region}</span>` : '')}
+            <div class="camera-name">${cam.name}${showDir ? ` <span class="cluster-direction">${dir}</span>` : ''}</div>
+            <div class="camera-status">
+              <span class="status-dot"></span>
+              ${cam.lastUpdated ? formatAge(cam.lastUpdated) : ''}
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Dot indicators
+    const dotsHtml = cams.map((_, i) =>
+      `<button class="cluster-dot${i === 0 ? ' active' : ''}" data-idx="${i}" aria-label="Camera ${i + 1} of ${cams.length}"></button>`
+    ).join('');
+
+    card.innerHTML = `
+      <div class="camera-thumb cluster-thumb">
+        <div class="cluster-track">${slidesHtml}</div>
+        <button class="cluster-arrow cluster-arrow-prev" aria-label="Previous camera" style="display:none">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <button class="cluster-arrow cluster-arrow-next" aria-label="Next camera">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+        </button>
+        <div class="cluster-dots">${dotsHtml}</div>
+        <span class="cluster-count">${cams.length}</span>
+      </div>
+    `;
+
+    // ── Pagination state & logic ──
+    const track = card.querySelector('.cluster-track');
+    const dots = card.querySelectorAll('.cluster-dot');
+    const prevBtn = card.querySelector('.cluster-arrow-prev');
+    const nextBtn = card.querySelector('.cluster-arrow-next');
+    let currentPage = 0;
+
+    function goToPage(page) {
+      if (page < 0 || page >= cams.length) return;
+      currentPage = page;
+      track.style.transform = `translateX(-${page * 100}%)`;
+      dots.forEach((d, i) => d.classList.toggle('active', i === page));
+      prevBtn.style.display = page === 0 ? 'none' : '';
+      nextBtn.style.display = page === cams.length - 1 ? 'none' : '';
+      // Update card's primary data-id for map sync
+      card.dataset.id = cams[page].id;
+    }
+
+    prevBtn.addEventListener('click', (e) => { e.stopPropagation(); goToPage(currentPage - 1); });
+    nextBtn.addEventListener('click', (e) => { e.stopPropagation(); goToPage(currentPage + 1); });
+    dots.forEach(dot => {
+      dot.addEventListener('click', (e) => {
+        e.stopPropagation();
+        goToPage(parseInt(dot.dataset.idx));
+      });
+    });
+
+    // ── Trackpad two-finger horizontal swipe ──
+    // Page once per gesture, then hard-lock until 500ms of silence so
+    // macOS trackpad inertia never triggers a second page change.
+    let wheelAccumX = 0;
+    let wheelLockUntil = 0; // timestamp — ignore all events before this
+    let wheelResetTimer = null;
+    const clusterThumb = card.querySelector('.cluster-thumb');
+
+    clusterThumb.addEventListener('wheel', (e) => {
+      if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const now = Date.now();
+      if (now < wheelLockUntil) return;
+
+      wheelAccumX += e.deltaX;
+
+      // Reset accumulator if gesture pauses (new swipe)
+      clearTimeout(wheelResetTimer);
+      wheelResetTimer = setTimeout(() => { wheelAccumX = 0; }, 150);
+
+      if (Math.abs(wheelAccumX) >= 60) {
+        const dir = wheelAccumX > 0 ? 1 : -1;
+        const targetPage = currentPage + dir;
+        wheelAccumX = 0;
+
+        if (targetPage < 0 || targetPage >= cams.length) {
+          // Rubber band — shift track slightly then spring back
+          const rubberPx = dir * -30;
+          track.style.transition = 'none';
+          track.style.transform = `translateX(calc(-${currentPage * 100}% + ${rubberPx}px))`;
+          requestAnimationFrame(() => {
+            track.style.transition = 'transform 0.35s var(--spring-bounce)';
+            track.style.transform = `translateX(-${currentPage * 100}%)`;
+          });
+        } else {
+          goToPage(targetPage);
+        }
+
+        // Hard lock — ignore everything for 500ms
+        wheelLockUntil = now + 500;
+      }
+    }, { passive: false });
+
+    // ── Touch swipe ──
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let swiping = false;
+
+    track.addEventListener('touchstart', (e) => {
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+      swiping = false;
+    }, { passive: true });
+
+    track.addEventListener('touchmove', (e) => {
+      const dx = e.touches[0].clientX - touchStartX;
+      const dy = e.touches[0].clientY - touchStartY;
+      // Lock to horizontal if mostly horizontal
+      if (!swiping && Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 10) {
+        swiping = true;
+      }
+      if (swiping) {
+        e.preventDefault();
+      }
+    }, { passive: false });
+
+    track.addEventListener('touchend', (e) => {
+      if (!swiping) return;
+      const dx = e.changedTouches[0].clientX - touchStartX;
+      if (dx < -40) goToPage(currentPage + 1);
+      else if (dx > 40) goToPage(currentPage - 1);
+    }, { passive: true });
+
+    // ── Click opens modal for current page camera ──
+    card.addEventListener('click', () => {
+      openModal(cams[currentPage], cluster);
+    });
+
+    // ── Hover / focus map sync ──
+    card.addEventListener('mouseenter', () => {
+      _hoveredCameraId = cams[currentPage].id;
+      TripMap.focusMarker(cams[currentPage].id);
+      TripMap.hoverMarker(cams[currentPage].id);
+    });
+    card.addEventListener('mouseleave', () => {
+      _hoveredCameraId = null;
+      TripMap.unhoverMarker();
+      if (_topCameraId) TripMap.focusMarker(_topCameraId);
+    });
+
+    return card;
+  }
+
   let _pendingRenderRaf = null;
 
-  function renderCameraList(cameras) {
+  function renderCameraList(clusters) {
     removeCameraCards();
     if (_pendingRenderRaf) { cancelAnimationFrame(_pendingRenderRaf); _pendingRenderRaf = null; }
 
-    if (cameras.length === 0) {
+    // Flatten for counting / empty check
+    const totalCameras = clusters.reduce((n, cl) => n + cl.cameras.length, 0);
+
+    if (totalCameras === 0) {
       const empty = document.createElement('div');
       empty.className = 'empty-state';
       empty.innerHTML = `
@@ -671,15 +879,21 @@ const App = (() => {
     }
 
     // Only show region badges when cameras span multiple regions
-    const regions = new Set(cameras.map(c => c.region));
+    const regions = new Set(filteredCameras.map(c => c.region));
     const showRegion = regions.size > 1;
 
     // Render first batch immediately for fast initial paint
-    const firstBatch = cameras.slice(0, INITIAL_RENDER_BATCH);
-    const restBatch = cameras.slice(INITIAL_RENDER_BATCH);
+    const firstBatch = clusters.slice(0, INITIAL_RENDER_BATCH);
+    const restBatch = clusters.slice(INITIAL_RENDER_BATCH);
 
     const fragment = document.createDocumentFragment();
-    firstBatch.forEach((cam, i) => fragment.appendChild(buildCameraCard(cam, i, showRegion)));
+    firstBatch.forEach((cluster, i) => {
+      if (cluster.cameras.length === 1) {
+        fragment.appendChild(buildCameraCard(cluster.cameras[0], i, showRegion));
+      } else {
+        fragment.appendChild(buildClusterCard(cluster, i, showRegion));
+      }
+    });
     dom.cameraList.appendChild(fragment);
 
     // Defer remaining cards to next frame so UI is interactive sooner
@@ -687,22 +901,27 @@ const App = (() => {
       _pendingRenderRaf = requestAnimationFrame(() => {
         _pendingRenderRaf = null;
         const restFragment = document.createDocumentFragment();
-        restBatch.forEach((cam, i) =>
-          restFragment.appendChild(buildCameraCard(cam, INITIAL_RENDER_BATCH + i, showRegion))
-        );
+        restBatch.forEach((cluster, i) => {
+          const idx = INITIAL_RENDER_BATCH + i;
+          if (cluster.cameras.length === 1) {
+            restFragment.appendChild(buildCameraCard(cluster.cameras[0], idx, showRegion));
+          } else {
+            restFragment.appendChild(buildClusterCard(cluster, idx, showRegion));
+          }
+        });
         dom.cameraList.appendChild(restFragment);
 
         // Re-setup observers for the new cards
         setupLazyLoading();
-        setupScrollTracking(cameras);
-        prefetchUpcoming(cameras);
+        setupScrollTracking(filteredCameras);
+        prefetchUpcoming(filteredCameras);
       });
     }
 
     // Setup observers for first batch immediately
     setupLazyLoading();
-    setupScrollTracking(cameras);
-    prefetchUpcoming(cameras);
+    setupScrollTracking(filteredCameras);
+    prefetchUpcoming(filteredCameras);
   }
 
   // Time-bucketed cache key: same URL reused within each bucket so SW cache hits.
@@ -917,14 +1136,26 @@ const App = (() => {
   // ── Map Interactions ─────────────────────────────────────────
 
   function onMarkerClick(cam) {
-    // Scroll to card in list
-    const card = dom.cameraList.querySelector(`[data-id="${cam.id}"]`);
+    // Find cluster card — check both data-id and data-cluster-ids
+    let card = dom.cameraList.querySelector(`[data-id="${cam.id}"]`);
+    if (!card) {
+      // Camera might be a non-primary member of a cluster
+      const cards = dom.cameraList.querySelectorAll('.cluster-card');
+      for (const c of cards) {
+        const ids = (c.dataset.clusterIds || '').split(',');
+        if (ids.includes(cam.id)) { card = c; break; }
+      }
+    }
     if (card) {
       card.scrollIntoView({ behavior: 'smooth', block: 'center' });
       card.classList.add('highlighted');
       setTimeout(() => card.classList.remove('highlighted'), 2000);
     }
-    openModal(cam);
+
+    // Find cluster for modal navigation
+    const clusterIdx = _clusterByCamId.get(cam.id);
+    const cluster = clusterIdx !== undefined ? filteredClusters[clusterIdx] : null;
+    openModal(cam, cluster);
   }
 
   function toggleMap() {
@@ -1150,12 +1381,48 @@ const App = (() => {
 
   // ── Modal ────────────────────────────────────────────────────
 
-  function openModal(cam) {
+  let _modalCluster = null; // cluster object when viewing a clustered camera
+  let _modalClusterPage = 0;
+
+  function openModal(cam, cluster) {
     currentModalCamera = cam;
+    _modalCluster = cluster && cluster.cameras.length > 1 ? cluster : null;
+    _modalClusterPage = _modalCluster ? _modalCluster.cameras.indexOf(cam) : 0;
+    if (_modalClusterPage < 0) _modalClusterPage = 0;
+
+    _renderModalContent(cam);
+
+    // Show/hide modal cluster navigation
+    const modalNav = dom.modal.querySelector('.modal-cluster-nav');
+    if (modalNav) modalNav.remove();
+    if (_modalCluster) {
+      const nav = document.createElement('div');
+      nav.className = 'modal-cluster-nav';
+      nav.innerHTML = `
+        <button class="modal-cluster-prev" aria-label="Previous camera" ${_modalClusterPage === 0 ? 'disabled' : ''}>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <span class="modal-cluster-label">${_modalClusterPage + 1} of ${_modalCluster.cameras.length}</span>
+        <button class="modal-cluster-next" aria-label="Next camera" ${_modalClusterPage === _modalCluster.cameras.length - 1 ? 'disabled' : ''}>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+        </button>
+      `;
+      dom.modalName.parentNode.insertBefore(nav, dom.modalName.nextSibling);
+      nav.querySelector('.modal-cluster-prev').addEventListener('click', () => _modalClusterGo(-1));
+      nav.querySelector('.modal-cluster-next').addEventListener('click', () => _modalClusterGo(1));
+    }
+
+    dom.modalOverlay.classList.add('active');
+    document.body.style.overflow = 'hidden';
+
+    // Highlight on map
+    TripMap.highlightMarker(cam.id);
+    TripMap.panTo(cam.lat, cam.lon);
+  }
+
+  function _renderModalContent(cam) {
     dom.modalName.textContent = cam.name;
     dom.modalInfo.textContent = `${cam.highway}${cam.direction ? ' · ' + cam.direction : ''} · ${cam.region}`;
-
-    // Load full image
     dom.modalLoading.classList.add('active');
     dom.modalImage.src = '';
     dom.modalImage.onload = () => {
@@ -1167,13 +1434,24 @@ const App = (() => {
       dom.modalImage.src = 'img/placeholder.svg';
     };
     dom.modalImage.src = cam.imageUrl || 'img/placeholder.svg';
+  }
 
-    dom.modalOverlay.classList.add('active');
-    document.body.style.overflow = 'hidden';
+  function _modalClusterGo(delta) {
+    if (!_modalCluster) return;
+    const newPage = _modalClusterPage + delta;
+    if (newPage < 0 || newPage >= _modalCluster.cameras.length) return;
+    _modalClusterPage = newPage;
+    const cam = _modalCluster.cameras[newPage];
+    currentModalCamera = cam;
+    _renderModalContent(cam);
 
-    // Highlight on map
-    TripMap.highlightMarker(cam.id);
-    TripMap.panTo(cam.lat, cam.lon);
+    // Update nav state
+    const nav = dom.modal.querySelector('.modal-cluster-nav');
+    if (nav) {
+      nav.querySelector('.modal-cluster-label').textContent = `${newPage + 1} of ${_modalCluster.cameras.length}`;
+      nav.querySelector('.modal-cluster-prev').disabled = newPage === 0;
+      nav.querySelector('.modal-cluster-next').disabled = newPage === _modalCluster.cameras.length - 1;
+    }
   }
 
   function closeModal() {
