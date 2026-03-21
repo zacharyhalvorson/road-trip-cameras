@@ -170,11 +170,14 @@ const TripMap = (() => {
     });
   }
 
-  function createMarkerIcon() {
-    return L.divIcon({
-      className: 'camera-marker',
-      iconSize: [8, 8],
-    });
+  // Shared icon instance — all camera markers look identical.
+  // Leaflet clones the icon internally, so reuse is safe.
+  let _cameraIcon = null;
+  function getCameraIcon() {
+    if (!_cameraIcon) {
+      _cameraIcon = L.divIcon({ className: 'camera-marker', iconSize: [8, 8] });
+    }
+    return _cameraIcon;
   }
 
   function setMarkers(cameras, onMarkerClick) {
@@ -187,7 +190,7 @@ const TripMap = (() => {
       if (cam.status === 'inactive') continue;
 
       const marker = L.marker([cam.lat, cam.lon], {
-        icon: createMarkerIcon(),
+        icon: getCameraIcon(),
       });
 
       // Popup with thumbnail
