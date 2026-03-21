@@ -1388,22 +1388,20 @@ const App = (() => {
     let wheelAccum = 0;
     let wheelCooldown = false;
     let wheelIdleTimer = null;
-    let wheelGestureActive = false;
     const WHEEL_THRESHOLD = 60;
-    const WHEEL_COOLDOWN_MS = 400;
     const WHEEL_IDLE_MS = 200;
 
     document.addEventListener('wheel', (e) => {
       if (isWideLayout()) return;
 
-      // Track whether a wheel gesture is in progress. Safari momentum
-      // scrolling fires events long after the physical gesture ends, so
-      // we consider the gesture "active" until events stop for WHEEL_IDLE_MS.
-      wheelGestureActive = true;
+      // Reset idle timer on every event. Safari momentum scrolling fires
+      // events long after the physical gesture, so cooldown is only cleared
+      // once events fully stop — preventing momentum from the reveal gesture
+      // from immediately triggering a collapse.
       clearTimeout(wheelIdleTimer);
       wheelIdleTimer = setTimeout(() => {
-        wheelGestureActive = false;
         wheelAccum = 0;
+        wheelCooldown = false;
       }, WHEEL_IDLE_MS);
 
       // Sheet not yet revealed — any scroll gesture reveals it.
@@ -1418,16 +1416,6 @@ const App = (() => {
           wheelAccum = 0;
           wheelCooldown = true;
           revealSheet();
-          // Swallow all remaining momentum from the reveal gesture.
-          // Only clear cooldown once wheel events have fully stopped.
-          const clearWhenIdle = () => {
-            if (wheelGestureActive) {
-              setTimeout(clearWhenIdle, WHEEL_IDLE_MS);
-            } else {
-              wheelCooldown = false;
-            }
-          };
-          setTimeout(clearWhenIdle, WHEEL_COOLDOWN_MS);
         }
         return;
       }
@@ -1444,7 +1432,6 @@ const App = (() => {
           wheelAccum = 0;
           wheelCooldown = true;
           collapseSheet();
-          setTimeout(() => { wheelCooldown = false; }, WHEEL_COOLDOWN_MS);
         }
       } else {
         // Scrolling mid-list or upward — let native scroll handle it
