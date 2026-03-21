@@ -637,20 +637,22 @@ const App = (() => {
     cards.forEach(c => c.remove());
   }
 
-  function formatLastUpdated(dateStr) {
+  function formatLastUpdated(dateStr, nowMs) {
     if (!dateStr) return '';
     const then = new Date(dateStr);
-    if (isNaN(then)) return '';
-    const diffMs = Date.now() - then.getTime();
+    if (Number.isNaN(then.getTime())) return '';
+    const diffMs = nowMs - then.getTime();
     if (diffMs < 0) return '';
-    const hours = Math.floor(diffMs / 3600000);
-    if (hours < 1) return 'Less than an hour ago';
+    const mins = Math.floor(diffMs / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins < 60) return mins === 1 ? '1 minute ago' : `${mins} minutes ago`;
+    const hours = Math.floor(mins / 60);
     if (hours < 24) return hours === 1 ? '1 hour ago' : `${hours} hours ago`;
     const days = Math.floor(hours / 24);
     return days === 1 ? '1 day ago' : `${days} days ago`;
   }
 
-  function buildCameraCard(cam, index, showRegion) {
+  function buildCameraCard(cam, index, showRegion, nowMs) {
     const card = document.createElement('div');
     card.dataset.id = cam.id;
     card.style.animationDelay = `${Math.min(index * 30, 300)}ms`;
@@ -671,7 +673,7 @@ const App = (() => {
           <div class="thumb-overlay">
             ${regionBadge}
             <div class="camera-name">${cam.name}</div>
-            ${cam.lastUpdated ? `<span class="thumb-updated">${formatLastUpdated(cam.lastUpdated)}</span>` : ''}
+            ${cam.lastUpdated ? `<span class="thumb-updated">${formatLastUpdated(cam.lastUpdated, nowMs)}</span>` : ''}
           </div>
         </div>
       `;
@@ -700,7 +702,7 @@ const App = (() => {
   }
 
   // Build a paginated cluster card with scroll-snap slides for each camera
-  function buildClusterCard(cluster, index, showRegion) {
+  function buildClusterCard(cluster, index, showRegion, nowMs) {
     const cams = cluster.cameras;
     const firstCam = cams[0];
     const card = document.createElement('div');
@@ -728,7 +730,7 @@ const App = (() => {
           <div class="thumb-overlay">
             ${i === 0 ? regionBadge : (showRegion ? `<span class="thumb-region ${cam.region}">${cam.region}</span>` : '')}
             <div class="camera-name">${cam.name}${showDir ? ` <span class="cluster-direction">${dir}</span>` : ''}</div>
-            ${cam.lastUpdated ? `<span class="thumb-updated">${formatLastUpdated(cam.lastUpdated)}</span>` : ''}
+            ${cam.lastUpdated ? `<span class="thumb-updated">${formatLastUpdated(cam.lastUpdated, nowMs)}</span>` : ''}
           </div>
         </div>
       `;
@@ -905,13 +907,14 @@ const App = (() => {
     // Render first batch immediately for fast initial paint
     const firstBatch = clusters.slice(0, INITIAL_RENDER_BATCH);
     const restBatch = clusters.slice(INITIAL_RENDER_BATCH);
+    const nowMs = Date.now();
 
     const fragment = document.createDocumentFragment();
     firstBatch.forEach((cluster, i) => {
       if (cluster.cameras.length === 1) {
-        fragment.appendChild(buildCameraCard(cluster.cameras[0], i, showRegion));
+        fragment.appendChild(buildCameraCard(cluster.cameras[0], i, showRegion, nowMs));
       } else {
-        fragment.appendChild(buildClusterCard(cluster, i, showRegion));
+        fragment.appendChild(buildClusterCard(cluster, i, showRegion, nowMs));
       }
     });
     dom.cameraList.appendChild(fragment);
@@ -924,9 +927,9 @@ const App = (() => {
         restBatch.forEach((cluster, i) => {
           const idx = INITIAL_RENDER_BATCH + i;
           if (cluster.cameras.length === 1) {
-            restFragment.appendChild(buildCameraCard(cluster.cameras[0], idx, showRegion));
+            restFragment.appendChild(buildCameraCard(cluster.cameras[0], idx, showRegion, nowMs));
           } else {
-            restFragment.appendChild(buildClusterCard(cluster, idx, showRegion));
+            restFragment.appendChild(buildClusterCard(cluster, idx, showRegion, nowMs));
           }
         });
         dom.cameraList.appendChild(restFragment);
