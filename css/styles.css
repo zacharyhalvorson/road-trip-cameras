@@ -699,7 +699,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 10px 0;
+  padding: 12px 0;
   cursor: grab;
   border-radius: 20px 20px 0 0;
   opacity: 0;
@@ -730,7 +730,7 @@ button {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
-  padding: 24px 12px 0;
+  padding: 28px 12px 0;
   padding-bottom: calc(var(--safe-bottom) + 20px);
   scrollbar-width: none;
 }
@@ -766,7 +766,7 @@ button {
   left: 0;
   right: 0;
   /* Centre vertically between handle bar and first camera card.
-     Peeking sheet = 120px, handle = ~24px, so visible list area ≈ 96px.
+     Peeking sheet = 120px, handle = ~28px, so visible list area ≈ 92px.
      Place spinner at the midpoint of that visible area. */
   top: 0;
   height: 80px !important;
