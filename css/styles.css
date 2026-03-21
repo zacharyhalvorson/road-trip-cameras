@@ -26,6 +26,11 @@
   /* Location color */
   --blue: #007AFF;
 
+  /* Traffic colors */
+  --traffic-clear: #2DB84B;
+  --traffic-mild: #E5A100;
+  --traffic-heavy: #DC2626;
+
   /* Typography */
   --font: -apple-system, 'Inter', 'SF Pro Display', system-ui, sans-serif;
   --font-mono: 'SF Mono', 'Fira Code', monospace;
@@ -62,6 +67,9 @@
     --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
     --shadow-lg: 0 12px 48px rgba(0, 0, 0, 0.4);
     --blue: #0A84FF;
+    --traffic-clear: #34D058;
+    --traffic-mild: #F5B800;
+    --traffic-heavy: #F85149;
   }
 }
 
@@ -190,8 +198,7 @@ button {
   background: var(--green);
   color: white;
   flex-shrink: 0;
-  transition: transform var(--duration-fast) var(--spring-bounce),
-              background var(--duration-fast);
+  transition: background var(--duration-fast);
 }
 
 .swap-btn:hover {
@@ -199,7 +206,32 @@ button {
 }
 
 .swap-btn:active {
-  transform: scale(0.85) rotate(180deg);
+  transform: scale(0.92);
+}
+
+.swap-btn.animating {
+  animation: swap-bounce 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes swap-bounce {
+  0% {
+    transform: scale(1) rotate(0deg);
+  }
+  /* Wind up: pull back slightly in opposite direction */
+  18% {
+    transform: scale(0.88) rotate(-22deg);
+  }
+  /* Main rotation overshoots past 180 */
+  58% {
+    transform: scale(1.04) rotate(198deg);
+  }
+  /* Settle back with a tiny bounce */
+  78% {
+    transform: scale(0.98) rotate(177deg);
+  }
+  100% {
+    transform: scale(1) rotate(180deg);
+  }
 }
 
 /* =============================================================
@@ -394,14 +426,17 @@ button {
   border: 1px solid var(--border) !important;
   width: 40px !important;
   height: 40px !important;
-  line-height: 40px !important;
+  line-height: 1 !important;
   font-size: 18px !important;
   border-radius: 12px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
 }
 
 .leaflet-control-zoom a:first-child {
   border-radius: 12px 12px 4px 4px !important;
-  margin-bottom: 2px !important;
+  margin-bottom: 1px !important;
 }
 
 .leaflet-control-zoom a:last-child {
@@ -585,7 +620,7 @@ button {
 
 .map-center-btn {
   position: absolute;
-  bottom: 224px;
+  bottom: 180px;
   right: 16px;
   z-index: 500;
   width: 40px;
@@ -604,7 +639,7 @@ button {
 }
 
 .sheet-expanded .map-center-btn {
-  bottom: 64px;
+  bottom: 60px;
 }
 
 .map-center-btn:active {
@@ -613,7 +648,7 @@ button {
 
 .map-toggle {
   position: absolute;
-  bottom: 176px;
+  bottom: 136px;
   right: 16px;
   z-index: 500;
   width: 40px;
@@ -634,6 +669,7 @@ button {
 .sheet-expanded .map-toggle {
   bottom: 16px;
 }
+
 
 .map-toggle:active {
   transform: scale(0.9);
@@ -857,7 +893,7 @@ button {
 .camera-thumb img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   transition: opacity var(--duration) var(--ease-out);
 }
 
@@ -906,12 +942,6 @@ button {
   text-shadow: 0 1px 3px rgba(0,0,0,0.5);
 }
 
-.thumb-overlay .camera-status {
-  flex-shrink: 0;
-  color: #fff;
-  text-shadow: 0 1px 3px rgba(0,0,0,0.5);
-}
-
 .camera-name {
   font-size: 14px;
   font-weight: 600;
@@ -946,30 +976,15 @@ button {
   align-items: center;
   gap: 4px;
   font-size: 11px;
-  color: var(--green);
+  color: var(--text-muted);
   font-weight: 500;
 }
 
 .camera-status .status-dot {
   width: 6px;
   height: 6px;
-  background: var(--green);
-  border-radius: 50%;
-  animation: pulse-dot 2s ease-in-out infinite;
-}
-
-.camera-status.offline {
-  color: var(--text-muted);
-}
-
-.camera-status.offline .status-dot {
   background: var(--text-muted);
-  animation: none;
-}
-
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  border-radius: 50%;
 }
 
 /* Compact disabled card for offline / no-feed cameras */
@@ -1375,7 +1390,7 @@ button {
     width: 50%;
   }
 
-  .map-center-btn { bottom: 64px; }
+  .map-center-btn { bottom: 60px; }
   .map-toggle { bottom: 16px; }
 
   .sheet,
@@ -1492,7 +1507,7 @@ button {
 .cluster-slide img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   display: block;
 }
 

@@ -424,9 +424,16 @@ const App = (() => {
     if (fromStop) saveHistory(fromStop.id);
     if (toStop) saveHistory(toStop.id);
 
-    // Animate the swap button
-    dom.swapBtn.style.transform = 'scale(0.85) rotate(180deg)';
-    setTimeout(() => { dom.swapBtn.style.transform = ''; }, 300);
+    // Animate the swap button with wind-up and bounce
+    dom.swapBtn.classList.remove('animating');
+    // Force reflow so re-adding the class restarts the animation
+    void dom.swapBtn.offsetWidth;
+    dom.swapBtn.classList.add('animating');
+    dom.swapBtn.addEventListener('animationend', function handler() {
+      dom.swapBtn.classList.remove('animating');
+      dom.swapBtn.style.transform = '';
+      dom.swapBtn.removeEventListener('animationend', handler);
+    });
   }
 
   function updateRouteDisplay() {
@@ -651,9 +658,6 @@ const App = (() => {
           <div class="thumb-overlay">
             ${regionBadge}
             <div class="camera-name">${cam.name}</div>
-            <div class="camera-status">
-              <span class="status-dot"></span>
-            </div>
           </div>
         </div>
       `;
@@ -710,9 +714,6 @@ const App = (() => {
           <div class="thumb-overlay">
             ${i === 0 ? regionBadge : (showRegion ? `<span class="thumb-region ${cam.region}">${cam.region}</span>` : '')}
             <div class="camera-name">${cam.name}${showDir ? ` <span class="cluster-direction">${dir}</span>` : ''}</div>
-            <div class="camera-status">
-              <span class="status-dot"></span>
-            </div>
           </div>
         </div>
       `;
