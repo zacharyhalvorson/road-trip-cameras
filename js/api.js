@@ -220,6 +220,10 @@ const API = (() => {
     }
   }
 
+  // Store route geometry for California district optimization
+  let _currentRouteGeometry = null;
+  function setRouteGeometry(geometry) { _currentRouteGeometry = geometry; }
+
   // Fetch a single registered region
   async function fetchRegisteredRegion(region) {
     const entry = CAMERA_REGISTRY[region];
@@ -244,7 +248,7 @@ const API = (() => {
 
     // Special case: California multi-district
     if (entry.multiDistrict && region === 'CA') {
-      return fetchCalifornia(normalizer);
+      return fetchCalifornia(normalizer, _currentRouteGeometry);
     }
 
     return fetchRegion(region, entry.url, normalizer);
@@ -652,6 +656,7 @@ const API = (() => {
     fetchGeocode,
     fetchGeocodeFallback,
     reverseGeocode,
+    setRouteGeometry,
     CAMERA_REGISTRY,
   };
 })();

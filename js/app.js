@@ -662,6 +662,8 @@ const App = (() => {
       .then(latlngs => {
         // Convert [lat, lon] arrays to {lat, lon} objects for cameras.js
         currentRouteGeometry = latlngs.map(p => ({ lat: p[0], lon: p[1] }));
+        // Share geometry with API for California district optimization
+        API.setRouteGeometry(currentRouteGeometry);
         // Re-filter with precise geometry and tight buffer
         _lastFilteredIds = '';
         applyFilters();

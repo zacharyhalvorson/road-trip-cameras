@@ -345,27 +345,42 @@ const Cameras = (() => {
   }
 
   // Normalize California Caltrans camera data (per-district JSON)
+  // Format: { data: [{ cctv: { index, location: { latitude, longitude, locationName, route, ... },
+  //   inService, imageData: { static: { currentImageURL } } } }] }
   function normalizeCA(data) {
-    if (!Array.isArray(data)) return [];
-    return data
-      .filter(cam => {
-        const loc = cam.cctv?.location || cam.location || {};
+    // Unwrap: API returns { data: [...] }, but merged array may be flat
+    let items = [];
+    if (Array.isArray(data)) {
+      // Could be array of { cctv: ... } objects (from data array) or already flattened
+      items = data;
+    } else if (data?.data && Array.isArray(data.data)) {
+      items = data.data;
+    } else {
+      return [];
+    }
+
+    return items
+      .filter(item => {
+        const cctv = item.cctv || item;
+        const loc = cctv.location || {};
         return loc.latitude && loc.longitude;
       })
-      .map(cam => {
-        const info = cam.cctv || cam;
-        const loc = info.location || {};
-        const imgUrl = info.imageUrl || (info.image?.static || '') || '';
+      .map(item => {
+        const cctv = item.cctv || item;
+        const loc = cctv.location || {};
+        const imgData = cctv.imageData || {};
+        const staticImg = imgData.static || {};
+        const imgUrl = staticImg.currentImageURL || cctv.imageUrl || '';
         return {
-          id: `ca-${info.index || info.id || Math.random().toString(36).slice(2, 8)}`,
-          name: loc.locationName || info.name || info.description || 'Unknown',
-          highway: loc.route || info.route || loc.nearbyPlace || '',
+          id: `ca-${cctv.index || cctv.id || Math.random().toString(36).slice(2, 8)}`,
+          name: loc.locationName || cctv.name || 'Unknown',
+          highway: loc.route || '',
           region: 'CA',
           lat: parseFloat(loc.latitude),
           lon: parseFloat(loc.longitude),
           imageUrl: imgUrl.startsWith('http') ? imgUrl : (imgUrl ? `https://cwwp2.dot.ca.gov${imgUrl}` : ''),
-          status: info.inService === 'true' || info.inService === true ? 'active' : (info.inService === undefined ? 'active' : 'inactive'),
-          direction: loc.direction || info.direction || '',
+          status: cctv.inService === 'true' || cctv.inService === true ? 'active' : 'inactive',
+          direction: loc.direction || '',
           lastUpdated: null,
         };
       });
