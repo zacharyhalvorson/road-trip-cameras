@@ -52,14 +52,14 @@ const TripMap = (() => {
     // Marker cluster group
     markerCluster = L.markerClusterGroup({
       maxClusterRadius: 40,
-      spiderfyOnMaxZoom: true,
+      spiderfyOnMaxZoom: false,
       showCoverageOnHover: false,
       zoomToBoundsOnClick: true,
       iconCreateFunction: () => {
         return L.divIcon({
           html: '',
           className: 'marker-cluster',
-          iconSize: L.point(20, 20),
+          iconSize: L.point(8, 8),
         });
       },
     });
@@ -170,10 +170,10 @@ const TripMap = (() => {
     });
   }
 
-  function createMarkerIcon(region) {
+  function createMarkerIcon() {
     return L.divIcon({
-      className: `camera-marker ${region}`,
-      iconSize: [14, 14],
+      className: 'camera-marker',
+      iconSize: [8, 8],
     });
   }
 
@@ -187,7 +187,7 @@ const TripMap = (() => {
       if (cam.status === 'inactive') continue;
 
       const marker = L.marker([cam.lat, cam.lon], {
-        icon: createMarkerIcon(cam.region),
+        icon: createMarkerIcon(),
       });
 
       // Popup with thumbnail
@@ -394,7 +394,7 @@ const TripMap = (() => {
       userLocationMarker = L.marker([lat, lon], {
         icon: L.divIcon({
           className: 'user-location-marker',
-          iconSize: [16, 16],
+          iconSize: [12, 12],
         }),
         zIndexOffset: 10000,
       }).addTo(map);
