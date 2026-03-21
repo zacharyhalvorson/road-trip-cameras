@@ -42,12 +42,12 @@ const Cameras = (() => {
   // Minimum distance from a point to a polyline in km
   // For dense polylines (OSRM geometry), uses bounding-box pre-filter to skip
   // segments that are clearly too far away, avoiding expensive haversine calls.
-  function pointToPolylineDistance(lat, lon, waypoints, bufferKm) {
+  function pointToPolylineDistance(lat, lon, waypoints) {
     let minDist = Infinity;
-    // Convert buffer to approximate degree threshold for bbox pre-filter
-    // 1 degree latitude ≈ 111km, 1 degree longitude ≈ 111km * cos(lat)
-    const bufferDeg = bufferKm ? (bufferKm / 111) * 1.5 : 0; // 1.5x safety margin
-    const useBbox = bufferDeg > 0 && waypoints.length > 50;
+    // Fixed generous bbox threshold (~50km) for segment pre-filtering.
+    // This is purely a performance optimization — must never affect the result.
+    const bufferDeg = 0.5; // ~55km at mid-latitudes
+    const useBbox = waypoints.length > 50;
 
     for (let i = 0; i < waypoints.length - 1; i++) {
       const aLat = waypoints[i].lat, aLon = waypoints[i].lon;
@@ -448,7 +448,7 @@ const Cameras = (() => {
       if (!isHighwayCamera(cam)) return false;
       let dist = distCache.get(cam.id);
       if (dist === undefined) {
-        dist = pointToPolylineDistance(cam.lat, cam.lon, waypoints, bufferKm);
+        dist = pointToPolylineDistance(cam.lat, cam.lon, waypoints);
         distCache.set(cam.id, dist);
       }
       return dist <= bufferKm;
