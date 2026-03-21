@@ -1,10 +1,37 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="100" fill="#4CAF50"/>
-  <g fill="white" stroke="white" stroke-linecap="round" stroke-linejoin="round">
-    <line x1="100" y1="175" x2="412" y2="175" stroke-width="20"/>
-    <circle cx="256" cy="175" r="22"/>
-    <line x1="256" y1="175" x2="105" y2="430" stroke-width="22"/>
-    <line x1="256" y1="175" x2="407" y2="430" stroke-width="22"/>
-    <line x1="256" y1="215" x2="256" y2="430" stroke-width="14"/>
+  <defs>
+    <clipPath id="rounded">
+      <rect width="512" height="512" rx="90" ry="90"/>
+    </clipPath>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#c8d5d8"/>
+      <stop offset="40%" stop-color="#d4ddd0"/>
+      <stop offset="100%" stop-color="#9ab89a"/>
+    </linearGradient>
+    <linearGradient id="road" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#555"/>
+      <stop offset="100%" stop-color="#3a3a3a"/>
+    </linearGradient>
+  </defs>
+  <g clip-path="url(#rounded)">
+    <!-- Sky/fog background -->
+    <rect width="512" height="512" fill="url(#sky)"/>
+    <!-- Ground/grass left -->
+    <polygon points="0,200 256,210 0,512" fill="#6a9b4a"/>
+    <polygon points="0,512 256,210 256,512" fill="#5d8c40"/>
+    <!-- Ground/grass right -->
+    <polygon points="512,200 256,210 512,512" fill="#6a9b4a"/>
+    <polygon points="512,512 256,210 256,512" fill="#5d8c40"/>
+    <!-- Road surface -->
+    <polygon points="180,512 332,512 262,210 250,210" fill="url(#road)"/>
+    <!-- White edge lines -->
+    <polygon points="180,512 190,512 253,210 250,210" fill="#ccc" opacity="0.8"/>
+    <polygon points="322,512 332,512 262,210 259,210" fill="#ccc" opacity="0.8"/>
+    <!-- Yellow center line -->
+    <polygon points="252,512 260,512 257,210 255,210" fill="#e8a820"/>
+    <!-- Fog overlay at horizon -->
+    <rect y="180" width="512" height="60" fill="url(#sky)" opacity="0.6"/>
+    <!-- Subtle glass highlight -->
+    <ellipse cx="256" cy="120" rx="220" ry="140" fill="white" opacity="0.12"/>
   </g>
 </svg>
