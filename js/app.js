@@ -531,6 +531,8 @@ const App = (() => {
     // ── Instant render from cache (synchronous, no network wait) ──
     const cachedCameras = API.getCachedImmediate(neededRegions.size > 0 ? neededRegions : null);
     if (cachedCameras && cachedCameras.length > 0) {
+      const now = Date.now();
+      cachedCameras.forEach(c => { c.fetchedAt = now; });
       allCameras = cachedCameras;
       applyFilters();
     } else {
@@ -547,7 +549,9 @@ const App = (() => {
 
     await API.fetchProgressive((region, result) => {
       if (result.fromCache) anyFromCache = true;
-      freshCameras.push(...(result.data || []));
+      const now = Date.now();
+      const cams = (result.data || []).map(c => { c.fetchedAt = now; return c; });
+      freshCameras.push(...cams);
       // Only re-render if we didn't have cached data, or if fresh data differs
       if (!hadCachedData) {
         allCameras = freshCameras.slice();
@@ -637,11 +641,9 @@ const App = (() => {
     cards.forEach(c => c.remove());
   }
 
-  function formatLastUpdated(dateStr, nowMs) {
-    if (!dateStr) return '';
-    const then = new Date(dateStr);
-    if (Number.isNaN(then.getTime())) return '';
-    const diffMs = nowMs - then.getTime();
+  function formatTimeSince(timestampMs, nowMs) {
+    if (!timestampMs) return '';
+    const diffMs = nowMs - timestampMs;
     if (diffMs < 0) return '';
     const mins = Math.floor(diffMs / 60000);
     if (mins < 1) return 'Just now';
@@ -673,7 +675,7 @@ const App = (() => {
           <div class="thumb-overlay">
             ${regionBadge}
             <div class="camera-name">${cam.name}</div>
-            ${cam.lastUpdated ? `<span class="thumb-updated">${formatLastUpdated(cam.lastUpdated, nowMs)}</span>` : ''}
+            ${cam.fetchedAt ? `<span class="thumb-updated">${formatTimeSince(cam.fetchedAt, nowMs)}</span>` : ''}
           </div>
         </div>
       `;
@@ -730,7 +732,7 @@ const App = (() => {
           <div class="thumb-overlay">
             ${i === 0 ? regionBadge : (showRegion ? `<span class="thumb-region ${cam.region}">${cam.region}</span>` : '')}
             <div class="camera-name">${cam.name}${showDir ? ` <span class="cluster-direction">${dir}</span>` : ''}</div>
-            ${cam.lastUpdated ? `<span class="thumb-updated">${formatLastUpdated(cam.lastUpdated, nowMs)}</span>` : ''}
+            ${cam.fetchedAt ? `<span class="thumb-updated">${formatTimeSince(cam.fetchedAt, nowMs)}</span>` : ''}
           </div>
         </div>
       `;
