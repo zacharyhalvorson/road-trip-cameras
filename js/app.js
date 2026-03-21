@@ -657,6 +657,7 @@ const App = (() => {
 
     currentRouteGeometry = null; // Reset until OSRM geometry loads
     _lastFilteredIds = ''; // Reset so filters re-render for new route
+    _hasZoomedForScroll = false; // Reset so map auto-zooms to visible cameras
     TripMap.drawRoute(currentWaypoints);
     TripMap.fitToRoute(currentWaypoints, { paddingBottom: sheetPeekPadding() });
 
@@ -966,7 +967,7 @@ const App = (() => {
       const imgSrc = cam.thumbnailUrl || cam.imageUrl;
       card.innerHTML = `
         <div class="camera-thumb">
-          <img src="img/placeholder.svg"
+          <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
                data-src="${imgSrc}"
                alt="${cam.name}"
                width="640" height="360"
@@ -1021,7 +1022,7 @@ const App = (() => {
       const showDir = dir && dir.toLowerCase() !== 'unknown' && !nameLower.includes(dir.toLowerCase());
       return `
         <div class="cluster-slide" data-cam-id="${cam.id}" data-slide-idx="${i}">
-          <img src="img/placeholder.svg"
+          <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
                data-src="${imgSrc}"
                alt="${cam.name}"
                width="640" height="360"
@@ -1242,6 +1243,24 @@ const App = (() => {
     setupLazyLoading();
     setupScrollTracking(filteredCameras);
     prefetchUpcoming(filteredCameras);
+
+    // On wide layout, auto-zoom map to show cameras visible in the list
+    if (isWideLayout() && !_hasZoomedForScroll) {
+      requestAnimationFrame(() => {
+        _hasZoomedForScroll = true;
+        const listRect = dom.cameraList.getBoundingClientRect();
+        const visIds = new Set();
+        for (const card of dom.cameraList.querySelectorAll('.camera-card')) {
+          const rect = card.getBoundingClientRect();
+          if (rect.top < listRect.bottom && rect.bottom > listRect.top) {
+            visIds.add(card.dataset.id);
+          }
+        }
+        if (visIds.size > 0) {
+          TripMap.fitToVisible(visIds);
+        }
+      });
+    }
   }
 
   // Time-bucketed cache key: same URL reused within each bucket so SW cache hits.
@@ -1263,7 +1282,7 @@ const App = (() => {
             if (!img.dataset.src) { observer.unobserve(img); continue; }
             img.src = cacheBustUrl(img.dataset.src);
             img.removeAttribute('data-src');
-            img.onerror = () => { img.src = 'img/placeholder.svg'; };
+            img.onerror = () => { img.style.opacity = '0'; };
             observer.unobserve(img);
           }
         }
