@@ -1387,11 +1387,22 @@ const App = (() => {
     // to reveal the sheet even when the cursor is over the map.
     let wheelAccum = 0;
     let wheelCooldown = false;
+    let wheelIdleTimer = null;
     const WHEEL_THRESHOLD = 60;
-    const WHEEL_COOLDOWN_MS = 400;
+    const WHEEL_IDLE_MS = 200;
 
     document.addEventListener('wheel', (e) => {
       if (isWideLayout()) return;
+
+      // Reset idle timer on every event. Safari momentum scrolling fires
+      // events long after the physical gesture, so cooldown is only cleared
+      // once events fully stop — preventing momentum from the reveal gesture
+      // from immediately triggering a collapse.
+      clearTimeout(wheelIdleTimer);
+      wheelIdleTimer = setTimeout(() => {
+        wheelAccum = 0;
+        wheelCooldown = false;
+      }, WHEEL_IDLE_MS);
 
       // Sheet not yet revealed — any scroll gesture reveals it.
       // Direction-agnostic so it works with both natural and traditional
@@ -1405,7 +1416,6 @@ const App = (() => {
           wheelAccum = 0;
           wheelCooldown = true;
           revealSheet();
-          setTimeout(() => { wheelCooldown = false; }, WHEEL_COOLDOWN_MS);
         }
         return;
       }
@@ -1422,7 +1432,6 @@ const App = (() => {
           wheelAccum = 0;
           wheelCooldown = true;
           collapseSheet();
-          setTimeout(() => { wheelCooldown = false; }, WHEEL_COOLDOWN_MS);
         }
       } else {
         // Scrolling mid-list or upward — let native scroll handle it
