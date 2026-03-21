@@ -531,8 +531,6 @@ const App = (() => {
     // ── Instant render from cache (synchronous, no network wait) ──
     const cachedCameras = API.getCachedImmediate(neededRegions.size > 0 ? neededRegions : null);
     if (cachedCameras && cachedCameras.length > 0) {
-      const now = Date.now();
-      cachedCameras.forEach(c => { c.fetchedAt = now; });
       allCameras = cachedCameras;
       applyFilters();
     } else {
@@ -549,9 +547,7 @@ const App = (() => {
 
     await API.fetchProgressive((region, result) => {
       if (result.fromCache) anyFromCache = true;
-      const now = Date.now();
-      const cams = (result.data || []).map(c => { c.fetchedAt = now; return c; });
-      freshCameras.push(...cams);
+      freshCameras.push(...(result.data || []));
       // Only re-render if we didn't have cached data, or if fresh data differs
       if (!hadCachedData) {
         allCameras = freshCameras.slice();
@@ -641,9 +637,11 @@ const App = (() => {
     cards.forEach(c => c.remove());
   }
 
-  function formatTimeSince(timestampMs, nowMs) {
-    if (!timestampMs) return '';
-    const diffMs = nowMs - timestampMs;
+  function formatTimeSince(dateStr, nowMs) {
+    if (!dateStr) return '';
+    const ts = new Date(dateStr).getTime();
+    if (Number.isNaN(ts)) return '';
+    const diffMs = nowMs - ts;
     if (diffMs < 0) return '';
     const mins = Math.floor(diffMs / 60000);
     if (mins < 1) return 'Just now';
@@ -675,7 +673,7 @@ const App = (() => {
           <div class="thumb-overlay">
             ${regionBadge}
             <div class="camera-name">${cam.name}</div>
-            ${cam.fetchedAt ? `<span class="thumb-updated">${formatTimeSince(cam.fetchedAt, nowMs)}</span>` : ''}
+            ${cam.lastUpdated ? `<span class="thumb-updated">${formatTimeSince(cam.lastUpdated, nowMs)}</span>` : ''}
           </div>
         </div>
       `;
@@ -732,7 +730,7 @@ const App = (() => {
           <div class="thumb-overlay">
             ${i === 0 ? regionBadge : (showRegion ? `<span class="thumb-region ${cam.region}">${cam.region}</span>` : '')}
             <div class="camera-name">${cam.name}${showDir ? ` <span class="cluster-direction">${dir}</span>` : ''}</div>
-            ${cam.fetchedAt ? `<span class="thumb-updated">${formatTimeSince(cam.fetchedAt, nowMs)}</span>` : ''}
+            ${cam.lastUpdated ? `<span class="thumb-updated">${formatTimeSince(cam.lastUpdated, nowMs)}</span>` : ''}
           </div>
         </div>
       `;
@@ -1527,6 +1525,21 @@ const App = (() => {
     return cardRect.bottom > listRect.top && cardRect.top < listRect.bottom;
   }
 
+  function _createFlipClone(imageSrc, rect, borderRadius) {
+    const clone = document.createElement('div');
+    clone.className = 'modal-transition-clone';
+    const img = document.createElement('img');
+    img.src = imageSrc;
+    clone.appendChild(img);
+    clone.style.top = rect.top + 'px';
+    clone.style.left = rect.left + 'px';
+    clone.style.width = rect.width + 'px';
+    clone.style.height = rect.height + 'px';
+    clone.style.borderRadius = borderRadius;
+    document.body.appendChild(clone);
+    return clone;
+  }
+
   function openModal(cam, cluster, sourceCard) {
     currentModalCamera = cam;
     _modalCluster = cluster && cluster.cameras.length > 1 ? cluster : null;
@@ -1547,7 +1560,6 @@ const App = (() => {
 
     if (canFlip) {
       const firstRect = thumbImg.getBoundingClientRect();
-      const cardRect = sourceCard.getBoundingClientRect();
       const cardRadius = getComputedStyle(sourceCard).borderRadius || '16px';
 
       // Keep modal invisible during the FLIP; suppress its own CSS transition
@@ -1557,17 +1569,10 @@ const App = (() => {
       dom.modalOverlay.classList.add('active');
       document.body.style.overflow = 'hidden';
 
-      const clone = document.createElement('div');
-      clone.className = 'modal-transition-clone';
-      const cloneImg = document.createElement('img');
-      cloneImg.src = thumbImg.src || thumbImg.dataset.src || 'img/placeholder.svg';
-      clone.appendChild(cloneImg);
-      clone.style.top = firstRect.top + 'px';
-      clone.style.left = firstRect.left + 'px';
-      clone.style.width = firstRect.width + 'px';
-      clone.style.height = firstRect.height + 'px';
-      clone.style.borderRadius = cardRadius;
-      document.body.appendChild(clone);
+      const clone = _createFlipClone(
+        thumbImg.src || thumbImg.dataset.src || 'img/placeholder.svg',
+        firstRect, cardRadius
+      );
       _flipClone = clone;
 
       // Force layout so the modal is at its final position for measurement
@@ -1576,19 +1581,18 @@ const App = (() => {
       requestAnimationFrame(() => {
         const modalImgContainer = dom.modal.querySelector('.modal-image-container');
         const modalImg = modalImgContainer.querySelector('.cluster-slide img, :scope > img');
+        const lastRect = modalImgContainer.getBoundingClientRect();
         // Use the modal image's natural dimensions to compute target height
-        const modalWidth = modalImgContainer.getBoundingClientRect().width;
         let targetHeight;
         if (modalImg && modalImg.naturalWidth && modalImg.naturalHeight) {
-          targetHeight = modalWidth * (modalImg.naturalHeight / modalImg.naturalWidth);
+          targetHeight = lastRect.width * (modalImg.naturalHeight / modalImg.naturalWidth);
         } else {
-          targetHeight = modalImgContainer.getBoundingClientRect().height;
+          targetHeight = lastRect.height;
         }
-        const lastRect = modalImgContainer.getBoundingClientRect();
 
         clone.style.top = lastRect.top + 'px';
         clone.style.left = lastRect.left + 'px';
-        clone.style.width = modalWidth + 'px';
+        clone.style.width = lastRect.width + 'px';
         clone.style.height = targetHeight + 'px';
         clone.style.borderRadius = '16px 16px 0 0';
 
@@ -1775,21 +1779,12 @@ const App = (() => {
       const visibleImg = modalImgContainer.querySelector('.cluster-slide img, :scope > img');
       const modalRect = modalImgContainer.getBoundingClientRect();
       const cardRect = thumbImg.getBoundingClientRect();
-      const cardParent = sourceCard;
-      const cardRadius = cardParent ? (getComputedStyle(cardParent).borderRadius || '16px') : '16px';
+      const cardRadius = getComputedStyle(sourceCard).borderRadius || '16px';
 
-      // Create clone at the modal's exact position (on top of the real image)
-      const clone = document.createElement('div');
-      clone.className = 'modal-transition-clone';
-      const cloneImg = document.createElement('img');
-      cloneImg.src = (visibleImg && visibleImg.src) || 'img/placeholder.svg';
-      clone.appendChild(cloneImg);
-      clone.style.top = modalRect.top + 'px';
-      clone.style.left = modalRect.left + 'px';
-      clone.style.width = modalRect.width + 'px';
-      clone.style.height = modalRect.height + 'px';
-      clone.style.borderRadius = '16px 16px 0 0';
-      document.body.appendChild(clone);
+      const clone = _createFlipClone(
+        (visibleImg && visibleImg.src) || 'img/placeholder.svg',
+        modalRect, '16px 16px 0 0'
+      );
 
       // NOW hide the modal (clone is covering the image so it's seamless)
       dom.modal.style.opacity = '0';
