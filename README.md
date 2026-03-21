@@ -1,6 +1,6 @@
 # Trip Cams
 
-**Live highway cameras along your driving route — Calgary to Seattle and beyond.**
+**Live highway cameras along your driving route.**
 
 **Live site: [https://zacharyhalvorson.github.io/road-trip-cameras/](https://zacharyhalvorson.github.io/road-trip-cameras/)**
 
