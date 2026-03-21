@@ -1596,12 +1596,15 @@ const App = (() => {
         const modalImgContainer = dom.modal.querySelector('.modal-image-container');
         const modalImg = modalImgContainer.querySelector('.cluster-slide img, :scope > img');
         const lastRect = modalImgContainer.getBoundingClientRect();
-        // Use the modal image's natural dimensions to compute target height
+        // Use the modal image's natural dimensions to compute target height;
+        // fall back to source thumbnail aspect ratio if modal image hasn't loaded yet
         let targetHeight;
         if (modalImg && modalImg.naturalWidth && modalImg.naturalHeight) {
           targetHeight = lastRect.width * (modalImg.naturalHeight / modalImg.naturalWidth);
+        } else if (thumbImg.naturalWidth && thumbImg.naturalHeight) {
+          targetHeight = lastRect.width * (thumbImg.naturalHeight / thumbImg.naturalWidth);
         } else {
-          targetHeight = lastRect.height;
+          targetHeight = lastRect.width * 0.75; // 4:3 fallback
         }
 
         clone.style.top = lastRect.top + 'px';
