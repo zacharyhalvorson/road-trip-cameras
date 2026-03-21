@@ -1597,8 +1597,7 @@ const App = (() => {
         const modalImgContainer = dom.modal.querySelector('.modal-image-container');
         const modalImg = modalImgContainer.querySelector('.cluster-slide img, :scope > img');
         const lastRect = modalImgContainer.getBoundingClientRect();
-        // Use the modal image's natural dimensions to compute target height;
-        // fall back to source thumbnail aspect ratio if modal image hasn't loaded yet
+        // Fall back to thumbnail aspect ratio if modal image hasn't loaded yet
         let targetHeight;
         if (modalImg && modalImg.naturalWidth && modalImg.naturalHeight) {
           targetHeight = lastRect.width * (modalImg.naturalHeight / modalImg.naturalWidth);
@@ -1618,15 +1617,11 @@ const App = (() => {
         const cleanup = () => {
           if (cleaned) return;
           cleaned = true;
-          // Snap modal to fully visible (no transition) so it's ready under the clone
           dom.modal.style.transition = 'none';
           dom.modal.style.opacity = '1';
           dom.modal.style.transform = 'translateY(0)';
-          // Force layout so opacity:1 is painted before clone removal
-          void dom.modal.offsetHeight;
-          // Remove the clone — modal is already fully opaque underneath, no flash
+          void dom.modal.offsetHeight; // paint opacity:1 before removing clone
           if (_flipClone) { _flipClone.remove(); _flipClone = null; }
-          // Now restore default transition and fade in the header overlay
           requestAnimationFrame(() => {
             dom.modal.style.transition = '';
             dom.modal.style.opacity = '';
