@@ -8,6 +8,7 @@
   --green: #2DB84B;
   --green-hover: #26a342;
   --green-subtle: rgba(45, 184, 75, 0.1);
+  --green-glow: rgba(45, 184, 75, 0.25);
   --navy: #f8fafc;
   --navy-light: #f1f5f9;
   --navy-card: #ffffff;
@@ -484,8 +485,9 @@ button {
   right: 8px !important;
 }
 
-/* ---- Camera markers: transit-style nodes on the route ---- */
-.camera-marker {
+/* ---- Camera markers & clusters: transit-style nodes on the route ---- */
+.camera-marker,
+.marker-cluster {
   background: var(--green);
   border: 2px solid white;
   border-radius: 50%;
@@ -493,15 +495,18 @@ button {
   height: 12px !important;
   margin-left: -6px !important;
   margin-top: -6px !important;
-  box-shadow: 0 0 0 1px rgba(45, 184, 75, 0.25), 0 1px 3px rgba(0, 0, 0, 0.25);
-  transition: width var(--duration-normal) var(--spring-bounce),
-              height var(--duration-normal) var(--spring-bounce),
-              margin var(--duration-normal) var(--spring-bounce),
+  box-shadow: 0 0 0 1px var(--green-glow), 0 1px 3px rgba(0, 0, 0, 0.25);
+  opacity: 0.85;
+}
+
+.camera-marker {
+  transition: width var(--duration) var(--spring-bounce),
+              height var(--duration) var(--spring-bounce),
+              margin var(--duration) var(--spring-bounce),
               opacity var(--duration-fast) var(--spring-bounce),
               transform var(--duration-fast) var(--spring-bounce),
-              box-shadow var(--duration-normal) var(--spring-bounce),
-              border-width var(--duration-normal) var(--spring-bounce);
-  opacity: 0.85;
+              box-shadow var(--duration) var(--spring-bounce),
+              border-width var(--duration) var(--spring-bounce);
 }
 
 .camera-marker:hover {
@@ -533,11 +538,12 @@ button {
   border: 2.5px solid white;
   opacity: 1;
   z-index: 10001 !important;
-  box-shadow: 0 0 0 4px rgba(45, 184, 75, 0.25), 0 2px 6px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 0 0 4px var(--green-glow), 0 2px 6px rgba(0, 0, 0, 0.25);
 }
 
 /* ---- Sheet expanded overrides ---- */
-.sheet-expanded .camera-marker {
+.sheet-expanded .camera-marker,
+.sheet-expanded .marker-cluster {
   width: 8px !important;
   height: 8px !important;
   margin-left: -4px !important;
@@ -553,28 +559,6 @@ button {
 .sheet-expanded .camera-marker.map-hovered {
   opacity: 1;
   z-index: 10002 !important;
-}
-
-/* ---- Cluster: single green dot, no expansion ---- */
-.marker-cluster {
-  width: 12px !important;
-  height: 12px !important;
-  margin-left: -6px !important;
-  margin-top: -6px !important;
-  background: var(--green) !important;
-  border: 2px solid white !important;
-  border-radius: 50% !important;
-  box-shadow: 0 0 0 1px rgba(45, 184, 75, 0.25), 0 1px 3px rgba(0, 0, 0, 0.25) !important;
-  opacity: 0.85;
-}
-
-.sheet-expanded .marker-cluster {
-  width: 8px !important;
-  height: 8px !important;
-  margin-left: -4px !important;
-  margin-top: -4px !important;
-  opacity: 0.45;
-  border-width: 1.5px !important;
 }
 
 .popup-content {
