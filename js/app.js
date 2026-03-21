@@ -597,6 +597,7 @@ const App = (() => {
     saveHistory(stop);
 
     closeDropdown();
+    resetToOverview();
     updateRouteDisplay();
     updateRoute();
     loadCameras();
@@ -608,6 +609,7 @@ const App = (() => {
     const temp = fromStop;
     fromStop = toStop;
     toStop = temp;
+    resetToOverview();
     updateRouteDisplay();
     updateRoute();
     applyFilters();
@@ -1587,6 +1589,21 @@ const App = (() => {
         }
       });
     }, 350);
+  }
+
+  /** Reset UI to the overview/collapsed state (used when route changes). */
+  function resetToOverview() {
+    dom.cameraList.scrollTop = 0;
+    _hasZoomedForScroll = false;
+    if (!isWideLayout() && sheetRevealed) {
+      sheetRevealed = false;
+      dom.mapContainer.style.height = '';
+      dom.sheet.classList.remove('revealed');
+      dom.sheet.classList.add('peeking');
+      document.body.classList.remove('sheet-expanded');
+      dom.cameraList.style.overflowY = 'hidden';
+      TripMap.invalidateSize();
+    }
   }
 
   function collapseSheet() {
