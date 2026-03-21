@@ -716,9 +716,9 @@ button {
 .sheet-handle-bar {
   width: 48px;
   height: 4px;
-  background: white;
+  background: rgba(160, 160, 160, 0.6);
   border-radius: 2px;
-  mix-blend-mode: difference;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.5), 0 0 3px rgba(0, 0, 0, 0.3);
 }
 
 /* =============================================================
