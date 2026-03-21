@@ -259,6 +259,8 @@ button {
   top: calc(var(--safe-top) + 60px);
   left: 12px;
   right: 12px;
+  max-width: 600px;
+  margin: 0 auto;
   z-index: 1200;
   background: var(--surface-raised);
   border: 1px solid var(--border);
