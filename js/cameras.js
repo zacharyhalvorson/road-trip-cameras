@@ -24,14 +24,18 @@ const Cameras = (() => {
     const dAB = haversine(aLat, aLon, bLat, bLon);
     if (dAB < 0.001) return haversine(pLat, pLon, aLat, aLon);
 
-    // Project point onto segment using dot product approximation
-    const dx = bLon - aLon;
+    // Project point onto segment using dot product approximation.
+    // Scale longitude by cos(midLat) so 1° lon ≈ 1° lat in distance,
+    // correcting for longitude convergence at higher latitudes.
+    const midLat = (aLat + bLat) / 2;
+    const cosLat = Math.cos(toRad(midLat));
+    const dx = (bLon - aLon) * cosLat;
     const dy = bLat - aLat;
     const t = Math.max(0, Math.min(1,
-      ((pLon - aLon) * dx + (pLat - aLat) * dy) / (dx * dx + dy * dy)
+      ((pLon - aLon) * cosLat * dx + (pLat - aLat) * dy) / (dx * dx + dy * dy)
     ));
-    const projLat = aLat + t * dy;
-    const projLon = aLon + t * dx;
+    const projLat = aLat + t * (bLat - aLat);
+    const projLon = aLon + t * (bLon - aLon);
     return haversine(pLat, pLon, projLat, projLon);
   }
 
@@ -77,14 +81,16 @@ const Cameras = (() => {
     for (let i = 0; i < waypoints.length - 1; i++) {
       const aLat = waypoints[i].lat, aLon = waypoints[i].lon;
       const bLat = waypoints[i + 1].lat, bLon = waypoints[i + 1].lon;
-      const dx = bLon - aLon;
+      const midLat = (aLat + bLat) / 2;
+      const cosLat = Math.cos(toRad(midLat));
+      const dx = (bLon - aLon) * cosLat;
       const dy = bLat - aLat;
       const len2 = dx * dx + dy * dy;
       const t = len2 < 0.000001 ? 0 : Math.max(0, Math.min(1,
-        ((lon - aLon) * dx + (lat - aLat) * dy) / len2
+        ((lon - aLon) * cosLat * dx + (lat - aLat) * dy) / len2
       ));
-      const projLat = aLat + t * dy;
-      const projLon = aLon + t * dx;
+      const projLat = aLat + t * (bLat - aLat);
+      const projLon = aLon + t * (bLon - aLon);
       const d = haversine(lat, lon, projLat, projLon);
       if (d < minDist) {
         minDist = d;

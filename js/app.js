@@ -880,7 +880,7 @@ const App = (() => {
     // Use OSRM geometry with tight buffer when available, fall back to waypoints
     const useGeometry = currentRouteGeometry && currentRouteGeometry.length > 0;
     const filterPath = useGeometry ? currentRouteGeometry : currentWaypoints;
-    const buffer = useGeometry ? 2 : (routeData?.corridorBuffer || 25);
+    const buffer = useGeometry ? 1 : (routeData?.corridorBuffer || 25);
 
     // Filter by corridor
     let cameras = filterPath.length > 0
