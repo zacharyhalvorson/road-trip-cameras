@@ -637,6 +637,19 @@ const App = (() => {
     cards.forEach(c => c.remove());
   }
 
+  function formatLastUpdated(dateStr) {
+    if (!dateStr) return '';
+    const then = new Date(dateStr);
+    if (isNaN(then)) return '';
+    const diffMs = Date.now() - then.getTime();
+    if (diffMs < 0) return '';
+    const hours = Math.floor(diffMs / 3600000);
+    if (hours < 1) return 'Less than an hour ago';
+    if (hours < 24) return hours === 1 ? '1 hour ago' : `${hours} hours ago`;
+    const days = Math.floor(hours / 24);
+    return days === 1 ? '1 day ago' : `${days} days ago`;
+  }
+
   function buildCameraCard(cam, index, showRegion) {
     const card = document.createElement('div');
     card.dataset.id = cam.id;
@@ -658,6 +671,7 @@ const App = (() => {
           <div class="thumb-overlay">
             ${regionBadge}
             <div class="camera-name">${cam.name}</div>
+            ${cam.lastUpdated ? `<span class="thumb-updated">${formatLastUpdated(cam.lastUpdated)}</span>` : ''}
           </div>
         </div>
       `;
@@ -714,6 +728,7 @@ const App = (() => {
           <div class="thumb-overlay">
             ${i === 0 ? regionBadge : (showRegion ? `<span class="thumb-region ${cam.region}">${cam.region}</span>` : '')}
             <div class="camera-name">${cam.name}${showDir ? ` <span class="cluster-direction">${dir}</span>` : ''}</div>
+            ${cam.lastUpdated ? `<span class="thumb-updated">${formatLastUpdated(cam.lastUpdated)}</span>` : ''}
           </div>
         </div>
       `;
