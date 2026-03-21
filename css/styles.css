@@ -398,14 +398,17 @@ button {
   border: 1px solid var(--border) !important;
   width: 40px !important;
   height: 40px !important;
-  line-height: 40px !important;
+  line-height: 1 !important;
   font-size: 18px !important;
   border-radius: 12px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
 }
 
 .leaflet-control-zoom a:first-child {
   border-radius: 12px 12px 4px 4px !important;
-  margin-bottom: 2px !important;
+  margin-bottom: 1px !important;
 }
 
 .leaflet-control-zoom a:last-child {
@@ -602,7 +605,7 @@ button {
 
 .map-center-btn {
   position: absolute;
-  bottom: 224px;
+  bottom: 180px;
   right: 16px;
   z-index: 500;
   width: 40px;
@@ -621,7 +624,7 @@ button {
 }
 
 .sheet-expanded .map-center-btn {
-  bottom: 64px;
+  bottom: 60px;
 }
 
 .map-center-btn:active {
@@ -630,7 +633,7 @@ button {
 
 .map-toggle {
   position: absolute;
-  bottom: 176px;
+  bottom: 136px;
   right: 16px;
   z-index: 500;
   width: 40px;
@@ -651,6 +654,7 @@ button {
 .sheet-expanded .map-toggle {
   bottom: 16px;
 }
+
 
 .map-toggle:active {
   transform: scale(0.9);
@@ -1385,7 +1389,7 @@ button {
     width: 50%;
   }
 
-  .map-center-btn { bottom: 64px; }
+  .map-center-btn { bottom: 60px; }
   .map-toggle { bottom: 16px; }
 
   .sheet,
