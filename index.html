@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="description" content="Live highway cameras along your driving route — Calgary to Seattle and beyond">
+  <meta name="description" content="Live highway cameras along your driving route across the US and Canada">
   <title>Trip Cams</title>
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" sizes="32x32" href="img/favicon.png">
@@ -19,6 +19,7 @@
   <link rel="dns-prefetch" href="https://511.alberta.ca">
   <link rel="dns-prefetch" href="https://www.drivebc.ca">
   <link rel="dns-prefetch" href="https://router.project-osrm.org">
+  <link rel="dns-prefetch" href="https://photon.komoot.io">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" crossorigin="">
@@ -57,7 +58,7 @@
   <div class="dropdown-overlay" id="dropdownOverlay"></div>
   <div class="dropdown" id="dropdown">
     <div class="dropdown-header">
-      <input type="text" class="dropdown-search" id="dropdownSearch" placeholder="Search cities..." autocomplete="off">
+      <input type="text" class="dropdown-search" id="dropdownSearch" placeholder="Search any city or town..." autocomplete="off">
     </div>
     <ul class="dropdown-list" id="dropdownList"></ul>
   </div>

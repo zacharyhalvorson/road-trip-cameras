@@ -187,22 +187,212 @@ const Cameras = (() => {
       }));
   }
 
+  // Generic IBI 511 normalizer — same format as Alberta but with configurable region code
+  function normalizeIBI(data, region) {
+    if (!Array.isArray(data)) return [];
+    const prefix = region.toLowerCase();
+    const cameras = [];
+    for (const cam of data) {
+      if (!cam.Latitude || !cam.Longitude) continue;
+      const views = cam.Views || [];
+      for (const view of views) {
+        cameras.push({
+          id: `${prefix}-${cam.Id}-${view.Id || 0}`,
+          name: cam.Location || 'Unknown',
+          highway: cam.Roadway || '',
+          region,
+          lat: cam.Latitude,
+          lon: cam.Longitude,
+          imageUrl: view.Url || '',
+          status: (view.Status || '').toLowerCase() === 'disabled' ? 'inactive' : 'active',
+          direction: cam.Direction || view.Description || '',
+          lastUpdated: view.LastUpdated || null,
+        });
+      }
+      if (views.length === 0) {
+        cameras.push({
+          id: `${prefix}-${cam.Id}`,
+          name: cam.Location || 'Unknown',
+          highway: cam.Roadway || '',
+          region,
+          lat: cam.Latitude,
+          lon: cam.Longitude,
+          imageUrl: '',
+          status: 'inactive',
+          direction: cam.Direction || '',
+          lastUpdated: null,
+        });
+      }
+    }
+    return cameras;
+  }
+
+  // Normalize Quebec camera data (WFS GeoJSON)
+  function normalizeQC(data) {
+    const features = data?.features || (Array.isArray(data) ? data : []);
+    return features
+      .filter(f => f.geometry?.coordinates?.length >= 2)
+      .map(f => {
+        const coords = f.geometry.coordinates;
+        const p = f.properties || {};
+        const imgUrl = p.url_image_en || p.url_image_fr || p.url_image || '';
+        return {
+          id: `qc-${p.id || p.id_camera || Math.random().toString(36).slice(2, 8)}`,
+          name: p.nom || p.description || p.name || 'Unknown',
+          highway: p.route || p.roadway || '',
+          region: 'QC',
+          lat: coords[1],
+          lon: coords[0],
+          imageUrl: imgUrl,
+          status: 'active',
+          direction: p.direction || '',
+          lastUpdated: null,
+        };
+      });
+  }
+
+  // Normalize Maryland camera data
+  function normalizeMD(data) {
+    if (!Array.isArray(data)) return [];
+    return data
+      .filter(cam => cam.lat && cam.lon)
+      .map(cam => ({
+        id: `md-${cam.cameraId || cam.id || Math.random().toString(36).slice(2, 8)}`,
+        name: cam.description || cam.name || cam.location || 'Unknown',
+        highway: cam.roadName || cam.road || '',
+        region: 'MD',
+        lat: parseFloat(cam.lat),
+        lon: parseFloat(cam.lon),
+        imageUrl: cam.imageUrl || cam.url || '',
+        status: cam.isActive !== false ? 'active' : 'inactive',
+        direction: cam.direction || '',
+        lastUpdated: cam.lastUpdated || null,
+      }));
+  }
+
+  // Normalize Ohio camera data
+  function normalizeOH(data) {
+    const items = data?.results || (Array.isArray(data) ? data : []);
+    return items
+      .filter(cam => cam.latitude && cam.longitude)
+      .map(cam => ({
+        id: `oh-${cam.id || Math.random().toString(36).slice(2, 8)}`,
+        name: cam.description || cam.location || 'Unknown',
+        highway: cam.routeName || cam.route || '',
+        region: 'OH',
+        lat: parseFloat(cam.latitude),
+        lon: parseFloat(cam.longitude),
+        imageUrl: cam.smallImageUrl || cam.largeImageUrl || cam.imageUrl || '',
+        status: cam.status === 'active' || cam.isActive !== false ? 'active' : 'inactive',
+        direction: cam.direction || '',
+        lastUpdated: cam.lastUpdated || null,
+      }));
+  }
+
+  // Normalize North Dakota camera data (GeoJSON)
+  function normalizeND(data) {
+    const features = data?.features || (Array.isArray(data) ? data : []);
+    return features
+      .filter(f => f.geometry?.coordinates?.length >= 2)
+      .map(f => {
+        const coords = f.geometry.coordinates;
+        const p = f.properties || {};
+        return {
+          id: `nd-${p.id || p.ID || Math.random().toString(36).slice(2, 8)}`,
+          name: p.title || p.name || p.description || 'Unknown',
+          highway: p.route || p.road || '',
+          region: 'ND',
+          lat: coords[1],
+          lon: coords[0],
+          imageUrl: p.imageUrl || p.image_url || p.url || '',
+          status: 'active',
+          direction: p.direction || '',
+          lastUpdated: null,
+        };
+      });
+  }
+
+  // Normalize ArcGIS Feature Service response
+  function normalizeArcGIS(data, region) {
+    const features = data?.features || [];
+    const prefix = region.toLowerCase();
+    return features
+      .filter(f => {
+        const g = f.geometry;
+        const a = f.attributes;
+        // ArcGIS can return coordinates in geometry or attributes
+        return (g?.y && g?.x) || (a?.latitude && a?.longitude) || (a?.Latitude && a?.Longitude);
+      })
+      .map(f => {
+        const a = f.attributes || {};
+        const g = f.geometry || {};
+        const lat = g.y || parseFloat(a.latitude || a.Latitude || a.LAT || 0);
+        const lon = g.x || parseFloat(a.longitude || a.Longitude || a.LON || 0);
+        const imgUrl = a.imageurl || a.ImageUrl || a.ImageURL || a.image_url || a.URL || a.url || '';
+        return {
+          id: `${prefix}-${a.OBJECTID || a.objectid || a.FID || a.id || Math.random().toString(36).slice(2, 8)}`,
+          name: a.title || a.Title || a.description || a.Description || a.NAME || a.Name || 'Unknown',
+          highway: a.route || a.Route || a.road || a.Road || a.RoadName || '',
+          region,
+          lat,
+          lon,
+          imageUrl: imgUrl,
+          status: 'active',
+          direction: a.direction || a.Direction || '',
+          lastUpdated: null,
+        };
+      });
+  }
+
+  // Normalize California Caltrans camera data (per-district JSON)
+  function normalizeCA(data) {
+    if (!Array.isArray(data)) return [];
+    return data
+      .filter(cam => {
+        const loc = cam.cctv?.location || cam.location || {};
+        return loc.latitude && loc.longitude;
+      })
+      .map(cam => {
+        const info = cam.cctv || cam;
+        const loc = info.location || {};
+        const imgUrl = info.imageUrl || (info.image?.static || '') || '';
+        return {
+          id: `ca-${info.index || info.id || Math.random().toString(36).slice(2, 8)}`,
+          name: loc.locationName || info.name || info.description || 'Unknown',
+          highway: loc.route || info.route || loc.nearbyPlace || '',
+          region: 'CA',
+          lat: parseFloat(loc.latitude),
+          lon: parseFloat(loc.longitude),
+          imageUrl: imgUrl.startsWith('http') ? imgUrl : (imgUrl ? `https://cwwp2.dot.ca.gov${imgUrl}` : ''),
+          status: info.inService === 'true' || info.inService === true ? 'active' : (info.inService === undefined ? 'active' : 'inactive'),
+          direction: loc.direction || info.direction || '',
+          lastUpdated: null,
+        };
+      });
+  }
+
   // Alberta highway keywords — filter out urban intersection cameras
   const AB_HIGHWAY_KEYWORDS = [
     'highway', 'hwy', 'qe2', 'qeii', 'trans-canada', 'trans canada',
     'yellowhead', 'icefields', 'crowsnest',
   ];
 
+  // Regions that use IBI 511 and may include urban intersection cameras
+  const IBI_REGIONS = new Set(['AB', 'SK', 'MB', 'ON', 'NB', 'NS', 'PE', 'NL', 'YT',
+    'NY', 'GA', 'WI', 'LA', 'AZ', 'ID', 'AK', 'UT', 'NV', 'CT']);
+
   function isHighwayCamera(cam) {
-    // BC and WA cameras are already highway cameras
-    if (cam.region !== 'AB') return true;
-    const text = (cam.name + ' ' + cam.highway).toLowerCase();
-    // Include if it matches known highway keywords
-    if (AB_HIGHWAY_KEYWORDS.some(kw => text.includes(kw))) return true;
-    // Include if highway field explicitly says "Hwy N" or "Highway N"
-    if (/\bhwy\s*\d|highway\s*\d/i.test(cam.highway)) return true;
-    // Exclude everything else — urban cameras, ring roads, etc.
-    return false;
+    // For IBI 511 regions, apply highway keyword filtering to reduce urban cameras
+    if (IBI_REGIONS.has(cam.region)) {
+      const text = (cam.name + ' ' + cam.highway).toLowerCase();
+      if (AB_HIGHWAY_KEYWORDS.some(kw => text.includes(kw))) return true;
+      if (/\bhwy\s*\d|highway\s*\d|interstate|i-\d|\bi\d{2,3}\b|us-?\d|route\s*\d|sr\s*\d|state\s*route/i.test(cam.highway || cam.name)) return true;
+      // If the camera has a highway/roadway field with content, assume it's a highway camera
+      if (cam.highway && cam.highway.trim().length > 0) return true;
+      return false;
+    }
+    // All other regions: cameras are pre-filtered or highway-only
+    return true;
   }
 
   // Cache corridor distance results to avoid recomputing for same camera+route
@@ -412,6 +602,13 @@ const Cameras = (() => {
     normalizeAlberta,
     normalizeBC,
     normalizeWA,
+    normalizeIBI,
+    normalizeQC,
+    normalizeMD,
+    normalizeOH,
+    normalizeND,
+    normalizeArcGIS,
+    normalizeCA,
     filterByCorridor,
     sortByRoute,
     clusterCameras,

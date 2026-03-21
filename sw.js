@@ -172,10 +172,42 @@ async function staleWhileRevalidate(request) {
 // ── Helpers ────────────────────────────────────────────────────
 
 function isApiRequest(url) {
-  return url.hostname === 'corsproxy.io' ||
-    url.hostname === '511.alberta.ca' ||
-    url.hostname === 'images.drivebc.ca' ||
-    url.hostname.includes('wsdot');
+  const host = url.hostname.toLowerCase();
+  return host === 'corsproxy.io' ||
+    host === '511.alberta.ca' ||
+    host === 'images.drivebc.ca' ||
+    host.includes('wsdot') ||
+    host === 'photon.komoot.io' ||
+    // IBI 511 platform domains (Canada)
+    host === 'hotline.gov.sk.ca' ||
+    host === 'www.manitoba511.ca' ||
+    host === '511on.ca' ||
+    host === '511.gnb.ca' ||
+    host === '511.novascotia.ca' ||
+    host === '511.gov.pe.ca' ||
+    host === '511nl.ca' ||
+    host === '511yukon.ca' ||
+    // IBI 511 platform domains (US)
+    host === '511ny.org' ||
+    host === '511ga.org' ||
+    host === '511wi.gov' ||
+    host === '511la.org' ||
+    host === 'az511.com' ||
+    host === '511.idaho.gov' ||
+    host === '511.alaska.gov' ||
+    host === 'udottraffic.utah.gov' ||
+    host === 'nvroads.com' ||
+    host === 'ctroads.com' ||
+    // Other US camera APIs
+    host === 'chart.maryland.gov' ||
+    host === 'publicapi.ohgo.com' ||
+    host.includes('cwwp2.dot.ca.gov') ||
+    host.includes('travelfiles.dot.nd.gov') ||
+    host.includes('wyoroad.info') ||
+    host.includes('kygisserver.ky.gov') ||
+    host.includes('firstmaptest.delaware.gov') ||
+    // Quebec
+    host.includes('mapserver.transports.gouv.qc.ca');
 }
 
 function isCameraImage(url) {
@@ -185,7 +217,15 @@ function isCameraImage(url) {
     (host.includes('511.alberta.ca') && path.includes('cctv')) ||
     (host.includes('drivebc') && (path.includes('image') || path.includes('webcam'))) ||
     (host.includes('wsdot') && path.includes('camera')) ||
-    (host.includes('images.wsdot.wa.gov'))
+    (host.includes('images.wsdot.wa.gov')) ||
+    // IBI 511 camera images (all share /map/Cctv/ pattern)
+    (path.includes('/map/cctv/') || path.includes('/cctv/')) ||
+    // Caltrans camera images
+    (host.includes('cwwp2.dot.ca.gov') && path.includes('cctv')) ||
+    // Maryland camera images
+    (host.includes('chart.maryland.gov') && (path.includes('camera') || path.includes('cctv'))) ||
+    // ArcGIS / other camera images
+    (path.includes('camera') && (path.endsWith('.jpg') || path.endsWith('.png') || path.endsWith('.jpeg')))
   );
 }
 
