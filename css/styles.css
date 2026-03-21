@@ -882,7 +882,6 @@ button {
 
 .camera-thumb {
   width: 100%;
-  aspect-ratio: 16 / 9;
   border-radius: 0;
   overflow: hidden;
   flex-shrink: 0;
@@ -892,8 +891,7 @@ button {
 
 .camera-thumb img {
   width: 100%;
-  height: 100%;
-  object-fit: cover;
+  display: block;
   transition: opacity var(--duration) var(--ease-out);
 }
 
@@ -1229,7 +1227,6 @@ button {
 .modal-image-container {
   position: relative;
   width: 100%;
-  aspect-ratio: 16 / 9;
   background: var(--navy);
   overflow: hidden;
   flex-shrink: 0;
@@ -1515,8 +1512,6 @@ button {
 
 .cluster-slide img {
   width: 100%;
-  height: 100%;
-  object-fit: cover;
   display: block;
 }
 
