@@ -893,7 +893,7 @@ button {
 .camera-thumb img {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
   transition: opacity var(--duration) var(--ease-out);
 }
 
@@ -1507,7 +1507,7 @@ button {
 .cluster-slide img {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
   display: block;
 }
 
