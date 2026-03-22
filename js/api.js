@@ -39,7 +39,7 @@ const API = (() => {
     CT: { url: 'https://ctroads.com/api/v2/get/cameras', norm: 'normalizeIBI', country: 'US' },
 
     // ── US: Custom formats ──
-    WA: { url: 'https://data.wsdot.wa.gov/mobile/Cameras.json', norm: 'normalizeWA', country: 'US' },
+    WA: { url: 'https://data.wsdot.wa.gov/mobile/Cameras.js', norm: 'normalizeWA', country: 'US' },
     MD: { url: 'https://chart.maryland.gov/DataFeeds/GetCamerasJson', norm: 'normalizeMD', country: 'US' },
     OH: { url: 'https://publicapi.ohgo.com/api/v1/cameras', norm: 'normalizeOH', country: 'US' },
     ND: { url: 'https://travelfiles.dot.nd.gov/geojson_nc/cameras.json', norm: 'normalizeND', country: 'US' },
@@ -104,6 +104,18 @@ const API = (() => {
 
   // ── Network helpers ────────────────────────────────────────────
 
+  // Parse JSON or JSONP (some endpoints like WSDOT serve .js files with callback wrappers)
+  async function parseJSON(resp) {
+    const text = await resp.text();
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      const match = text.match(/^\s*\w+\s*\(\s*([\s\S]*?)\s*\)\s*;?\s*$/);
+      if (match) return JSON.parse(match[1]);
+      throw e;
+    }
+  }
+
   function getTimeouts() {
     const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
     const slow = conn && (conn.saveData || ['slow-2g', '2g', '3g'].includes(conn.effectiveType));
@@ -117,7 +129,7 @@ const API = (() => {
     try {
       const resp = await fetch(proxied, { ...options, signal: controller.signal });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      return await resp.json();
+      return await parseJSON(resp);
     } finally {
       clearTimeout(timeout);
     }
@@ -129,7 +141,7 @@ const API = (() => {
     try {
       const resp = await fetch(url, { ...options, signal: controller.signal });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      return await resp.json();
+      return await parseJSON(resp);
     } finally {
       clearTimeout(timeout);
     }
