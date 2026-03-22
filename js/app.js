@@ -283,16 +283,11 @@ const App = (() => {
               // Auto-set origin and destination on first load if no prefs/hash set them
               if (fromStop && fromStop.source !== 'geocode' && fromStop.source !== 'geolocation' && !_prefsOrHashSetOrigin) {
                 fromStop = city;
-                // Set destination to closest major city that isn't the user's location
-                const majorCityIds = ['calgary', 'vancouver', 'seattle', 'kamloops', 'lethbridge', 'bellingham', 'kelowna'];
-                const majorStops = allStops.filter(s => majorCityIds.includes(s.id));
+                // Set destination to closest major city that's >50km away
+                const majorCityIds = ['calgary', 'vancouver', 'seattle', 'kamloops', 'lethbridge', 'bellingham'];
+                const majorStops = allStops.filter(s => majorCityIds.includes(s.id) && Cameras.haversine(latitude, longitude, s.lat, s.lon) > 50);
                 if (majorStops.length > 0) {
-                  // Sort by distance from user, pick closest that's >50km away
-                  const sorted = majorStops
-                    .map(s => ({ stop: s, dist: Cameras.haversine(latitude, longitude, s.lat, s.lon) }))
-                    .sort((a, b) => a.dist - b.dist);
-                  const best = sorted.find(s => s.dist > 50) || sorted[sorted.length - 1];
-                  toStop = best.stop;
+                  toStop = Cameras.nearestStop(latitude, longitude, majorStops);
                 }
                 updateRouteDisplay();
                 updateRoute();
@@ -332,7 +327,6 @@ const App = (() => {
     if (fromStop) _prefsOrHashSetOrigin = true;
 
     // Set defaults if not from hash or prefs
-    // Default origin: Vancouver, default destination: Calgary
     if (!fromStop) fromStop = allStops.find(s => s.id === 'vancouver') || allStops[0];
     if (!toStop) toStop = allStops.find(s => s.id === 'calgary') || allStops[allStops.length - 1];
 
