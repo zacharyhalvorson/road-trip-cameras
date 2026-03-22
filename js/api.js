@@ -4,10 +4,7 @@
 
 const API = (() => {
   const CORS_PROXY = 'https://corsproxy.io/?url=';
-
-  // WSDOT access code (free, public registration)
-  // Register at: https://wsdot.wa.gov/traffic/api/
-  const WSDOT_ACCESS_CODE = '';
+  const CORS_PROXY_ALT = 'https://api.allorigins.win/raw?url=';
 
   // ── Camera API Registry ────────────────────────────────────────
   // Each entry: { url, normalizer, country, needsProxy }
@@ -43,7 +40,14 @@ const API = (() => {
     CT: { url: 'https://ctroads.com/api/v2/get/cameras', norm: 'normalizeIBI', country: 'US' },
 
     // ── US: Custom formats ──
-    WA: { url: 'https://wsdot.com/Traffic/api/HighwayCameras/HighwayCamerasREST.svc/GetCamerasAsJson', norm: 'normalizeWA', country: 'US', needsAccessCode: true },
+    WA: {
+      urls: [
+        'https://www.wsdot.wa.gov/Traffic/api/HighwayCameras/HighwayCamerasREST.svc/GetCamerasAsJson?AccessCode=75de6d3e-f4e0-4dc0-841f-11b95c1acc7e',
+        'https://data.wsdot.wa.gov/arcgis/rest/services/TravelInformation/TravelInfoCamerasWeather/FeatureServer/0/query?where=1%3D1&outFields=*&f=json',
+      ],
+      norm: 'normalizeWA', country: 'US'
+    },
+    OR: { url: 'https://gis.odot.state.or.us/arcgis1006/rest/services/trip_check/Trip_Check_Terrain/MapServer/1/query?where=1%3D1&outFields=*&f=json', norm: 'normalizeArcGIS', country: 'US' },
     MD: { url: 'https://chart.maryland.gov/DataFeeds/GetCamerasJson', norm: 'normalizeMD', country: 'US' },
     OH: { url: 'https://publicapi.ohgo.com/api/v1/cameras', norm: 'normalizeOH', country: 'US' },
     ND: { url: 'https://travelfiles.dot.nd.gov/geojson_nc/cameras.json', norm: 'normalizeND', country: 'US' },
@@ -108,6 +112,22 @@ const API = (() => {
 
   // ── Network helpers ────────────────────────────────────────────
 
+  // Parse JSON, JSONP callback, or JS variable assignment
+  async function parseJSON(resp) {
+    const text = await resp.text();
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      // JSONP: callback({...})
+      const jsonp = text.match(/^\s*\w+\s*\(\s*([\s\S]*?)\s*\)\s*;?\s*$/);
+      if (jsonp) return JSON.parse(jsonp[1]);
+      // JS assignment: var name = {...};
+      const assign = text.match(/^\s*(?:var|let|const)\s+\w+\s*=\s*([\s\S]*?)\s*;?\s*$/);
+      if (assign) return JSON.parse(assign[1]);
+      throw e;
+    }
+  }
+
   function getTimeouts() {
     const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
     const slow = conn && (conn.saveData || ['slow-2g', '2g', '3g'].includes(conn.effectiveType));
@@ -121,7 +141,7 @@ const API = (() => {
     try {
       const resp = await fetch(proxied, { ...options, signal: controller.signal });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      return await resp.json();
+      return await parseJSON(resp);
     } finally {
       clearTimeout(timeout);
     }
@@ -133,7 +153,7 @@ const API = (() => {
     try {
       const resp = await fetch(url, { ...options, signal: controller.signal });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      return await resp.json();
+      return await parseJSON(resp);
     } finally {
       clearTimeout(timeout);
     }
@@ -149,12 +169,29 @@ const API = (() => {
     }
   }
 
-  // Try direct, then proxy
+  async function fetchWithAltProxy(url, options = {}) {
+    const proxied = CORS_PROXY_ALT + encodeURIComponent(url);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), getTimeouts().proxy);
+    try {
+      const resp = await fetch(proxied, { ...options, signal: controller.signal });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      return await parseJSON(resp);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  // Try direct, then primary proxy, then alt proxy
   async function fetchWithRetry(url) {
     try {
       return await fetchDirect(url);
     } catch (e) {
-      return await fetchWithProxy(url);
+      try {
+        return await fetchWithProxy(url);
+      } catch (e2) {
+        return await fetchWithAltProxy(url);
+      }
     }
   }
 
@@ -231,27 +268,53 @@ const API = (() => {
 
     const normalizer = getNormalizer(region);
 
-    // Special case: WSDOT needs access code
-    if (entry.needsAccessCode && region === 'WA') {
-      if (!WSDOT_ACCESS_CODE) {
-        const cached = getCachedData('WA');
-        if (cached) return { data: normalizer(cached.data), fromCache: true };
-        const fallback = await fetchFallback('WA');
-        if (fallback) {
-          setCachedData('WA', fallback);
-          return { data: normalizer(fallback), fromCache: true };
-        }
-        return { data: [], fromCache: true, error: 'No WSDOT access code' };
-      }
-      return fetchRegion('WA', `${entry.url}?AccessCode=${WSDOT_ACCESS_CODE}`, normalizer);
-    }
-
     // Special case: California multi-district
     if (entry.multiDistrict && region === 'CA') {
       return fetchCalifornia(normalizer, _currentRouteGeometry);
     }
 
+    // Support entries with multiple fallback URLs
+    if (entry.urls) {
+      return fetchRegionMultiUrl(region, entry.urls, normalizer);
+    }
     return fetchRegion(region, entry.url, normalizer);
+  }
+
+  // Try multiple endpoint URLs in sequence until one succeeds
+  async function fetchRegionMultiUrl(region, urls, normalizer) {
+    const cached = getCachedData(region);
+    if (cached && cached.fresh) {
+      return { data: normalizer(cached.data), fromCache: true };
+    }
+    if (cached && !cached.fresh) {
+      // Stale cache — return it, refresh in background
+      (async () => {
+        for (const url of urls) {
+          try {
+            const raw = await fetchWithRetry(url);
+            setCachedData(region, raw);
+            return;
+          } catch (e) { /* try next URL */ }
+        }
+      })();
+      return { data: normalizer(cached.data), fromCache: true, stale: true };
+    }
+    // No cache — try each URL
+    for (const url of urls) {
+      try {
+        const raw = await fetchWithRetry(url);
+        setCachedData(region, raw);
+        return { data: normalizer(raw), fromCache: false };
+      } catch (e) { /* try next URL */ }
+    }
+    // All URLs failed — try fallback file
+    console.warn(`${region} all API URLs failed, using fallback`);
+    const fallback = await fetchFallback(region);
+    if (fallback) {
+      setCachedData(region, fallback);
+      return { data: normalizer(fallback), fromCache: true };
+    }
+    return { data: [], fromCache: true, error: 'All endpoints failed' };
   }
 
   // California: fetch only relevant districts, merge results
