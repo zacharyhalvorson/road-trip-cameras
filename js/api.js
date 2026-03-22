@@ -39,7 +39,7 @@ const API = (() => {
     CT: { url: 'https://ctroads.com/api/v2/get/cameras', norm: 'normalizeIBI', country: 'US' },
 
     // ── US: Custom formats ──
-    WA: { url: 'https://data.wsdot.wa.gov/arcgis/rest/services/TravelInformation/TravelInfoCamerasWeather/FeatureServer/0/query?where=1%3D1&outFields=*&outSR=4326&f=json', norm: 'normalizeArcGIS', country: 'US' },
+    WA: { url: 'https://data.wsdot.wa.gov/mobile/Cameras.json', norm: 'normalizeWA', country: 'US' },
     MD: { url: 'https://chart.maryland.gov/DataFeeds/GetCamerasJson', norm: 'normalizeMD', country: 'US' },
     OH: { url: 'https://publicapi.ohgo.com/api/v1/cameras', norm: 'normalizeOH', country: 'US' },
     ND: { url: 'https://travelfiles.dot.nd.gov/geojson_nc/cameras.json', norm: 'normalizeND', country: 'US' },
@@ -175,6 +175,7 @@ const API = (() => {
     if (normName === 'normalizeIBI') return (d) => Cameras.normalizeIBI(d, region);
     if (normName === 'normalizeAlberta') return Cameras.normalizeAlberta;
     if (normName === 'normalizeBC') return Cameras.normalizeBC;
+    if (normName === 'normalizeWA') return Cameras.normalizeWA;
     if (normName === 'normalizeQC') return Cameras.normalizeQC;
     if (normName === 'normalizeMD') return Cameras.normalizeMD;
     if (normName === 'normalizeOH') return Cameras.normalizeOH;

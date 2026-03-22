@@ -165,6 +165,25 @@ const Cameras = (() => {
       });
   }
 
+  // Normalize WSDOT mobile JSON (data.wsdot.wa.gov/mobile/Cameras.json)
+  function normalizeWA(data) {
+    const items = data?.cameras?.items || (Array.isArray(data) ? data : []);
+    return items
+      .filter(cam => cam.lat && cam.lon)
+      .map(cam => ({
+        id: `wa-${cam.id}`,
+        name: cam.title || 'Unknown',
+        highway: cam.roadName || '',
+        region: 'WA',
+        lat: cam.lat,
+        lon: cam.lon,
+        imageUrl: cam.url || '',
+        status: 'active',
+        direction: cam.direction || '',
+        lastUpdated: null,
+      }));
+  }
+
   // Generic IBI 511 normalizer — same format as Alberta but with configurable region code
   function normalizeIBI(data, region) {
     if (!Array.isArray(data)) return [];
@@ -309,14 +328,14 @@ const Cameras = (() => {
         const imgUrl = a.imageurl || a.ImageUrl || a.ImageURL || a.image_url || a.URL || a.url || '';
         return {
           id: `${prefix}-${a.OBJECTID || a.objectid || a.FID || a.id || Math.random().toString(36).slice(2, 8)}`,
-          name: a.title || a.Title || a.CameraTitle || a.CameraTitl || a.description || a.Description || a.NAME || a.Name || 'Unknown',
-          highway: a.route || a.Route || a.StateRoute || a.road || a.Road || a.RoadName || '',
+          name: a.title || a.Title || a.description || a.Description || a.NAME || a.Name || 'Unknown',
+          highway: a.route || a.Route || a.road || a.Road || a.RoadName || '',
           region,
           lat,
           lon,
           imageUrl: imgUrl,
           status: 'active',
-          direction: a.direction || a.Direction || a.CompassDirection || a.CompassDir || '',
+          direction: a.direction || a.Direction || '',
           lastUpdated: null,
         };
       });
@@ -619,6 +638,7 @@ const Cameras = (() => {
   return {
     normalizeAlberta,
     normalizeBC,
+    normalizeWA,
     normalizeIBI,
     normalizeQC,
     normalizeMD,
