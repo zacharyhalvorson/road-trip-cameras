@@ -735,14 +735,24 @@ const App = (() => {
   // ── Snap to Current Location ─────────────────────────────────
 
   function snapToCurrentLocation() {
-    if (!userLocation) return;
+    const cards = dom.cameraList.querySelectorAll('.camera-card');
+
+    // If no location available, scroll to the beginning of the list
+    if (!userLocation) {
+      const firstCard = cards[0];
+      if (firstCard) {
+        firstCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        firstCard.classList.add('highlighted');
+        setTimeout(() => firstCard.classList.remove('highlighted'), 2000);
+      }
+      return;
+    }
 
     // Find nearest camera in the current filtered list
     const { lat, lon } = userLocation;
     let nearestCard = null;
     let minDist = Infinity;
 
-    const cards = dom.cameraList.querySelectorAll('.camera-card');
     for (const card of cards) {
       const cam = filteredCameras.find(c => c.id === card.dataset.id);
       if (!cam) continue;
