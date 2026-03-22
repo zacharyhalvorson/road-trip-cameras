@@ -11,6 +11,7 @@ const App = (() => {
   let _clusterByCamId = new Map(); // camera id -> cluster index for quick lookup
   let currentWaypoints = [];
   let currentRouteGeometry = null; // Dense OSRM road geometry for precise filtering
+  let _routeGeneration = 0; // Incremented on each route change to cancel stale loads
   let fromStop = null;
   let toStop = null;
   let dropdownTarget = null; // 'from' or 'to'
@@ -22,7 +23,9 @@ const App = (() => {
   let _focusedCameraId = null; // the camera card currently centered in the list
   let _topCameraId = null; // the camera card at the top of the visible list
   let _hoveredCameraId = null; // camera card the user is hovering over
-  let userLocation = null; // { lat, lon, nearestStop } when geolocation available
+  let userLocation = null; // { lat, lon, nearestStop, city? } when geolocation available
+  let _prefsOrHashSetOrigin = false; // true if prefs or hash already set the origin
+  let _geocodeDebounceTimer = null;
 
   const PREFS_KEY = 'tripcams_prefs';
   const ROUTE_DATA_KEY = 'tripcams_route_data';
@@ -32,9 +35,18 @@ const App = (() => {
 
   function savePrefs() {
     try {
+      // Store full location objects for custom locations, just ID for predefined
+      const serialize = (stop) => {
+        if (!stop) return null;
+        if (stop.source && stop.source !== 'predefined') {
+          return { id: stop.id, name: stop.name, region: stop.region, country: stop.country,
+                   lat: stop.lat, lon: stop.lon, source: stop.source, displayName: stop.displayName };
+        }
+        return stop.id;
+      };
       localStorage.setItem(PREFS_KEY, JSON.stringify({
-        from: fromStop?.id || null,
-        to: toStop?.id || null,
+        from: serialize(fromStop),
+        to: serialize(toStop),
       }));
     } catch (e) { /* ignore */ }
   }
@@ -44,6 +56,20 @@ const App = (() => {
       const stored = localStorage.getItem(PREFS_KEY);
       return stored ? JSON.parse(stored) : null;
     } catch (e) { return null; }
+  }
+
+  // Resolve a stored pref value to a stop object
+  function resolveStop(val) {
+    if (!val) return null;
+    // String ID → predefined stop
+    if (typeof val === 'string') return allStops.find(s => s.id === val) || null;
+    // Full object → custom location
+    if (typeof val === 'object' && val.lat && val.lon) {
+      val.source = val.source || 'geocode';
+      val.displayName = val.displayName || `${val.name}, ${val.region}`;
+      return val;
+    }
+    return null;
   }
 
   function saveRouteData(data) {
@@ -63,20 +89,44 @@ const App = (() => {
   function loadHistory() {
     try {
       const stored = localStorage.getItem(HISTORY_KEY);
-      return stored ? JSON.parse(stored) : [];
+      if (!stored) return [];
+      const parsed = JSON.parse(stored);
+      if (!Array.isArray(parsed)) return [];
+      // Migrate old format (array of strings) to new format
+      return parsed.map(item => {
+        if (typeof item === 'string') {
+          return { id: item, source: 'predefined' };
+        }
+        return item;
+      });
     } catch (e) { return []; }
   }
 
-  function saveHistory(stopId) {
+  function saveHistory(stop) {
     try {
       let history = loadHistory();
-      // Remove if already present, then prepend
-      history = history.filter(id => id !== stopId);
-      history.unshift(stopId);
-      // Cap at max
+      // Remove if already present (by id), then prepend
+      const stopId = typeof stop === 'string' ? stop : stop.id;
+      history = history.filter(h => h.id !== stopId);
+      // Store minimal object
+      if (typeof stop === 'string' || !stop.source || stop.source === 'predefined') {
+        history.unshift({ id: stopId, source: 'predefined' });
+      } else {
+        history.unshift({ id: stop.id, name: stop.name, region: stop.region, country: stop.country,
+                          lat: stop.lat, lon: stop.lon, source: stop.source, displayName: stop.displayName });
+      }
       if (history.length > MAX_HISTORY) history = history.slice(0, MAX_HISTORY);
       localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
     } catch (e) { /* ignore */ }
+  }
+
+  // Resolve a history entry to a full stop object
+  function resolveHistoryEntry(entry) {
+    if (entry.source === 'predefined') {
+      return allStops.find(s => s.id === entry.id) || null;
+    }
+    // Custom location — return as-is (already has all fields)
+    return entry;
   }
 
   // Connection quality detection
@@ -218,16 +268,31 @@ const App = (() => {
         }
       });
 
-    // Detect user location so it can appear in the picker
+    // Detect user location — used for picker + auto-origin
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (pos) => {
+        async (pos) => {
           const { latitude, longitude } = pos.coords;
           TripMap.showUserLocation(latitude, longitude);
-          const nearest = Cameras.nearestStop(latitude, longitude, allStops);
-          if (nearest) {
-            userLocation = { lat: latitude, lon: longitude, nearestStop: nearest };
-          }
+          const nearest = allStops.length > 0 ? Cameras.nearestStop(latitude, longitude, allStops) : null;
+          userLocation = { lat: latitude, lon: longitude, nearestStop: nearest };
+
+          // Reverse geocode to get city name
+          try {
+            const city = await API.reverseGeocode(latitude, longitude);
+            if (city) {
+              userLocation.city = city;
+              // Auto-set origin on first load if no prefs/hash set it
+              if (fromStop && fromStop.source !== 'geocode' && fromStop.source !== 'geolocation' && !_prefsOrHashSetOrigin) {
+                fromStop = city;
+                updateRouteDisplay();
+                updateRoute();
+                loadCameras();
+                updateHash();
+                savePrefs();
+              }
+            }
+          } catch (e) { /* ignore geocode failure */ }
         },
         () => {},
         { enableHighAccuracy: true, timeout: 10000 }
@@ -249,10 +314,13 @@ const App = (() => {
     if (!fromStop && !toStop) {
       const prefs = loadPrefs();
       if (prefs) {
-        if (prefs.from) fromStop = allStops.find(s => s.id === prefs.from) || null;
-        if (prefs.to) toStop = allStops.find(s => s.id === prefs.to) || null;
+        fromStop = resolveStop(prefs.from);
+        toStop = resolveStop(prefs.to);
       }
     }
+
+    // Track whether prefs/hash set the origin (for auto-origin from geolocation)
+    if (fromStop) _prefsOrHashSetOrigin = true;
 
     // Set defaults if not from hash or prefs
     if (!fromStop) fromStop = allStops.find(s => s.id === 'calgary') || allStops[0];
@@ -263,6 +331,9 @@ const App = (() => {
 
     // Start camera loading immediately — no RAF delay
     loadCameras();
+
+    // Pre-load region bounds for route detection
+    API.loadRegionBounds();
   }
 
   function bindEvents() {
@@ -273,7 +344,8 @@ const App = (() => {
 
     // Dropdown
     dom.dropdownOverlay.addEventListener('click', closeDropdown);
-    dom.dropdownSearch.addEventListener('input', filterDropdown);
+    dom.dropdownSearch.addEventListener('input', onDropdownInput);
+    dom.dropdownSearch.addEventListener('keydown', onDropdownKeydown);
 
     // Map toggle
     dom.mapToggle.addEventListener('click', toggleMap);
@@ -330,42 +402,81 @@ const App = (() => {
     dropdownTarget = null;
   }
 
-  function filterDropdown() {
-    renderDropdownList(dom.dropdownSearch.value);
+  function onDropdownInput() {
+    const q = dom.dropdownSearch.value.trim();
+    renderDropdownList(q);
+
+    // Debounced geocoding for 2+ chars
+    clearTimeout(_geocodeDebounceTimer);
+    if (q.length >= 2) {
+      _geocodeDebounceTimer = setTimeout(() => triggerGeocode(q), 300);
+    }
   }
 
-  function createStopLi(stop) {
+  function onDropdownKeydown(e) {
+    const items = dom.dropdownList.querySelectorAll('li:not(.dropdown-section-header):not(.dropdown-loading)');
+    if (items.length === 0) return;
+
+    const currentFocus = dom.dropdownList.querySelector('li.kb-focus');
+    let idx = -1;
+    if (currentFocus) {
+      idx = [...items].indexOf(currentFocus);
+    }
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (currentFocus) currentFocus.classList.remove('kb-focus');
+      idx = Math.min(idx + 1, items.length - 1);
+      items[idx].classList.add('kb-focus');
+      items[idx].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (currentFocus) currentFocus.classList.remove('kb-focus');
+      idx = Math.max(idx - 1, 0);
+      items[idx].classList.add('kb-focus');
+      items[idx].scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (currentFocus) currentFocus.click();
+      else if (items.length > 0) items[0].click();
+    }
+  }
+
+  function createStopLi(stop, extraClass) {
     const li = document.createElement('li');
     li.dataset.id = stop.id;
     li.tabIndex = 0;
-    li.innerHTML = `<span class="city-name">${stop.name}</span><span class="city-region ${stop.region}">${stop.region}</span>`;
-    li.addEventListener('click', () => selectStop(stop.id));
-    li.addEventListener('keydown', (e) => { if (e.key === 'Enter') selectStop(stop.id); });
+    if (extraClass) li.className = extraClass;
+    const regionClass = stop.region || '';
+    const displayRegion = stop.displayName ? stop.region : stop.region;
+    li.innerHTML = `<span class="city-name">${stop.name}</span><span class="city-region ${regionClass}">${displayRegion}</span>`;
+    li.addEventListener('click', () => selectStop(stop));
+    li.addEventListener('keydown', (e) => { if (e.key === 'Enter') selectStop(stop); });
     return li;
   }
 
   function renderDropdownList(query) {
     dom.dropdownList.innerHTML = '';
-    const q = query.toLowerCase().trim();
+    const q = (query || '').toLowerCase().trim();
     const history = loadHistory();
 
     // Show "Current Location" option when geolocation is available
-    if (userLocation && (!q || 'current location'.includes(q) ||
-        userLocation.nearestStop.name.toLowerCase().includes(q))) {
+    const locCity = userLocation?.city;
+    const locName = locCity?.name || userLocation?.nearestStop?.name || '';
+    const locRegion = locCity?.region || userLocation?.nearestStop?.region || '';
+    if (userLocation && (!q || 'current location'.includes(q) || locName.toLowerCase().includes(q))) {
       const li = document.createElement('li');
       li.tabIndex = 0;
       li.className = 'location-option';
-      li.innerHTML = `<svg class="location-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg><span class="city-name">Current Location</span><span class="city-region ${userLocation.nearestStop.region}">${userLocation.nearestStop.name}</span>`;
-      li.addEventListener('click', snapToCurrentLocation);
-      li.addEventListener('keydown', (e) => { if (e.key === 'Enter') snapToCurrentLocation(); });
+      li.innerHTML = `<svg class="location-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg><span class="city-name">Current Location</span><span class="city-region ${locRegion}">${locName}</span>`;
+      li.addEventListener('click', () => selectCurrentLocation());
+      li.addEventListener('keydown', (e) => { if (e.key === 'Enter') selectCurrentLocation(); });
       dom.dropdownList.appendChild(li);
     }
 
     // Show recent section when not searching and there's history
     if (!q && history.length > 0) {
-      const recentStops = history
-        .map(id => allStops.find(s => s.id === id))
-        .filter(Boolean);
+      const recentStops = history.map(resolveHistoryEntry).filter(Boolean);
 
       if (recentStops.length > 0) {
         const header = document.createElement('li');
@@ -384,17 +495,77 @@ const App = (() => {
       }
     }
 
+    // Predefined stops (instant local filter)
     for (const stop of allStops) {
       const searchText = (stop.name + ' ' + stop.region).toLowerCase();
       if (!q || searchText.includes(q)) {
         dom.dropdownList.appendChild(createStopLi(stop));
       }
     }
+
+    // If actively searching, show a loading indicator for geocode results
+    if (q.length >= 2) {
+      const loading = document.createElement('li');
+      loading.className = 'dropdown-loading';
+      loading.id = 'geocodeLoading';
+      loading.innerHTML = '<span class="loading-dot"></span><span class="loading-dot"></span><span class="loading-dot"></span>';
+      dom.dropdownList.appendChild(loading);
+    }
   }
 
-  function selectStop(stopId) {
-    const stop = allStops.find(s => s.id === stopId);
-    if (!stop) return;
+  async function triggerGeocode(query) {
+    const biasLat = userLocation?.lat;
+    const biasLon = userLocation?.lon;
+
+    let results = await API.fetchGeocode(query, biasLat, biasLon);
+
+    // Address fallback: if no city/town results, try broader search
+    if (results.length === 0) {
+      results = await API.fetchGeocodeFallback(query, biasLat, biasLon);
+    }
+
+    // Remove loading indicator
+    const loading = document.getElementById('geocodeLoading');
+    if (loading) loading.remove();
+
+    // Check if dropdown is still open and query still matches
+    if (!dom.dropdown.classList.contains('active')) return;
+    const currentQuery = dom.dropdownSearch.value.trim().toLowerCase();
+    if (currentQuery !== query.toLowerCase()) return;
+
+    if (results.length === 0) return;
+
+    // Filter out results that match existing predefined stops
+    const predefinedIds = new Set(allStops.map(s => s.name.toLowerCase() + '|' + s.region));
+    const filtered = results.filter(r => !predefinedIds.has(r.name.toLowerCase() + '|' + r.region));
+    if (filtered.length === 0) return;
+
+    // Add geocode section header
+    const header = document.createElement('li');
+    header.className = 'dropdown-section-header';
+    header.textContent = results[0].isNearestCity ? 'Nearest city' : 'More results';
+    dom.dropdownList.appendChild(header);
+
+    for (const loc of filtered) {
+      dom.dropdownList.appendChild(createStopLi(loc, 'geocode-result'));
+    }
+  }
+
+  function selectCurrentLocation() {
+    if (!userLocation) return;
+    const city = userLocation.city;
+    const stop = city || {
+      id: `current-${Date.now()}`,
+      name: userLocation.nearestStop?.name || 'Current Location',
+      region: userLocation.nearestStop?.region || '',
+      country: userLocation.nearestStop?.region ? ((['AB','BC','SK','MB','ON','QC','NB','NS','PE','NL','YT'].includes(userLocation.nearestStop.region)) ? 'CA' : 'US') : '',
+      lat: userLocation.lat,
+      lon: userLocation.lon,
+      source: 'geolocation',
+      displayName: 'Current Location',
+    };
+    stop.source = 'geolocation';
+    stop.displayName = 'Current Location';
 
     if (dropdownTarget === 'from') {
       fromStop = stop;
@@ -402,9 +573,32 @@ const App = (() => {
       toStop = stop;
     }
 
-    saveHistory(stopId);
+    saveHistory(stop);
+    closeDropdown();
+    updateRouteDisplay();
+    updateRoute();
+    loadCameras();
+    updateHash();
+    savePrefs();
+  }
+
+  function selectStop(stop) {
+    // Accept either a stop object or a stop ID
+    if (typeof stop === 'string') {
+      stop = allStops.find(s => s.id === stop);
+      if (!stop) return;
+    }
+
+    if (dropdownTarget === 'from') {
+      fromStop = stop;
+    } else {
+      toStop = stop;
+    }
+
+    saveHistory(stop);
 
     closeDropdown();
+    resetToOverview();
     updateRouteDisplay();
     updateRoute();
     loadCameras();
@@ -416,13 +610,14 @@ const App = (() => {
     const temp = fromStop;
     fromStop = toStop;
     toStop = temp;
+    resetToOverview();
     updateRouteDisplay();
     updateRoute();
     applyFilters();
     updateHash();
     savePrefs();
-    if (fromStop) saveHistory(fromStop.id);
-    if (toStop) saveHistory(toStop.id);
+    if (fromStop) saveHistory(fromStop);
+    if (toStop) saveHistory(toStop);
 
     // Animate the swap button with wind-up and bounce
     dom.swapBtn.classList.remove('animating');
@@ -437,38 +632,110 @@ const App = (() => {
   }
 
   function updateRouteDisplay() {
-    if (fromStop) dom.fromValue.textContent = `${fromStop.name}, ${fromStop.region}`;
-    if (toStop) dom.toValue.textContent = `${toStop.name}, ${toStop.region}`;
+    if (fromStop) {
+      dom.fromValue.textContent = fromStop.displayName || `${fromStop.name}, ${fromStop.region}`;
+    }
+    if (toStop) {
+      dom.toValue.textContent = toStop.displayName || `${toStop.name}, ${toStop.region}`;
+    }
+  }
+
+  function _isCustomRoute() {
+    return (fromStop?.source && fromStop.source !== 'predefined') ||
+           (toStop?.source && toStop.source !== 'predefined');
   }
 
   function updateRoute() {
-    if (!routeData || !fromStop || !toStop) return;
-    currentWaypoints = Cameras.findRoute(routeData, fromStop.id, toStop.id);
+    if (!fromStop || !toStop) return;
+
+    const customRoute = _isCustomRoute();
+    const generation = ++_routeGeneration; // Cancel any in-flight loads from previous route
+
+    if (customRoute || !routeData) {
+      // Custom locations: just use origin + destination, OSRM provides the path
+      currentWaypoints = [fromStop, toStop];
+    } else {
+      // Both predefined: use existing route-finding logic
+      currentWaypoints = Cameras.findRoute(routeData, fromStop.id, toStop.id);
+    }
+
     currentRouteGeometry = null; // Reset until OSRM geometry loads
     _lastFilteredIds = ''; // Reset so filters re-render for new route
+    _hasZoomedForScroll = false; // Reset so map auto-zooms to visible cameras
     TripMap.drawRoute(currentWaypoints);
     TripMap.fitToRoute(currentWaypoints, { paddingBottom: sheetPeekPadding() });
 
     // Fetch precise OSRM road geometry for filtering
     TripMap.fetchRoadGeometry(currentWaypoints)
       .then(latlngs => {
+        if (generation !== _routeGeneration) return; // Stale — route changed since
         // Convert [lat, lon] arrays to {lat, lon} objects for cameras.js
         currentRouteGeometry = latlngs.map(p => ({ lat: p[0], lon: p[1] }));
+        // Share geometry with API for California district optimization
+        API.setRouteGeometry(currentRouteGeometry);
         // Re-filter with precise geometry and tight buffer
         _lastFilteredIds = '';
         applyFilters();
+
+        // For custom routes, detect regions from actual road geometry and load cameras
+        // This is the primary camera load for custom routes (not loadCameras)
+        if (customRoute) {
+          loadCamerasForGeometry(generation);
+        }
       })
       .catch(e => {
+        if (generation !== _routeGeneration) return;
         console.warn('Could not fetch route geometry for filtering:', e.message);
-        // Keep using straight-line waypoints with wider buffer
+        // For custom routes, fall back to straight-line filtering
+        if (customRoute) {
+          loadCamerasForGeometry(generation);
+        }
       });
+  }
+
+  // After OSRM geometry arrives for a custom route, detect regions and fetch cameras.
+  // This is the primary camera loading path for custom routes — cameras are filtered
+  // against the actual OSRM road geometry with a tight 2km buffer.
+  async function loadCamerasForGeometry(generation) {
+    const filterPath = currentRouteGeometry || currentWaypoints;
+    if (!filterPath || filterPath.length === 0) return;
+    const neededRegions = await API.getRegionsForRoute(filterPath);
+    if (generation !== _routeGeneration) return; // Route changed while detecting regions
+    if (neededRegions.size === 0) {
+      dom.skeletonList.classList.add('hidden');
+      return;
+    }
+
+    // Force re-render since we have new geometry
+    _lastFilteredIds = '';
+
+    // Fetch cameras for detected regions
+    const freshCameras = [];
+    await API.fetchProgressive((region, result) => {
+      if (generation !== _routeGeneration) return; // Stale
+      freshCameras.push(...(result.data || []));
+      allCameras = freshCameras;
+      _lastFilteredIds = ''; // Force re-filter with each new batch
+      applyFilters();
+    }, neededRegions);
+
+    if (generation !== _routeGeneration) return; // Route changed during fetch
+    if (freshCameras.length > 0) {
+      allCameras = freshCameras;
+      _lastFilteredIds = '';
+      applyFilters();
+    }
+
+    dom.skeletonList.classList.add('hidden');
+
+    // Auto-open camera from URL hash
+    requestAnimationFrame(() => _openCameraFromHash());
   }
 
   // ── Snap to Current Location ─────────────────────────────────
 
   function snapToCurrentLocation() {
     if (!userLocation) return;
-    closeDropdown();
 
     // Find nearest camera in the current filtered list
     const { lat, lon } = userLocation;
@@ -496,19 +763,55 @@ const App = (() => {
 
   // ── URL Hash ─────────────────────────────────────────────────
 
+  // Encode a stop for the URL hash
+  function encodeStopForHash(stop) {
+    if (!stop) return '';
+    // Predefined stop: just the id
+    if (!stop.source || stop.source === 'predefined') return stop.id;
+    // Custom: lat,lon,name,region
+    return `${stop.lat.toFixed(4)},${stop.lon.toFixed(4)},${encodeURIComponent(stop.name)},${stop.region}`;
+  }
+
+  // Decode a stop from the URL hash
+  function decodeStopFromHash(val) {
+    if (!val) return null;
+    // Check if it's a predefined stop id first
+    const predefined = allStops.find(s => s.id === val);
+    if (predefined) return predefined;
+    // Try parsing as lat,lon,name,region
+    const parts = val.split(',');
+    if (parts.length >= 4) {
+      const lat = parseFloat(parts[0]);
+      const lon = parseFloat(parts[1]);
+      const name = decodeURIComponent(parts[2]);
+      const region = parts[3];
+      if (!isNaN(lat) && !isNaN(lon)) {
+        return {
+          id: `custom-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${region}`,
+          name, region, lat, lon,
+          country: ['AB','BC','SK','MB','ON','QC','NB','NS','PE','NL','YT'].includes(region) ? 'CA' : 'US',
+          source: 'geocode',
+          displayName: `${name}, ${region}`,
+        };
+      }
+    }
+    return null;
+  }
+
   function parseHash() {
     const hash = window.location.hash.slice(1);
     if (!hash) return;
     const params = new URLSearchParams(hash);
     const from = params.get('from');
     const to = params.get('to');
-    if (from) fromStop = allStops.find(s => s.id === from) || null;
-    if (to) toStop = allStops.find(s => s.id === to) || null;
+    if (from) fromStop = decodeStopFromHash(from);
+    if (to) toStop = decodeStopFromHash(to);
+    if (fromStop) _prefsOrHashSetOrigin = true;
   }
 
   function updateHash() {
     if (fromStop && toStop) {
-      let hash = `from=${fromStop.id}&to=${toStop.id}`;
+      let hash = `from=${encodeStopForHash(fromStop)}&to=${encodeStopForHash(toStop)}`;
       // Preserve camera param if modal is open
       const camId = _getCameraIdFromHash();
       if (camId) hash += `&camera=${camId}`;
@@ -520,11 +823,25 @@ const App = (() => {
   // ── Camera Loading ───────────────────────────────────────────
 
   async function loadCameras() {
+    const generation = _routeGeneration; // Capture current generation
+
+    // For custom routes, don't load cameras here — wait for OSRM geometry
+    // which triggers loadCamerasForGeometry() with precise corridor filtering.
+    // With only 2 waypoints (origin + destination), the straight-line buffer
+    // catches too many off-route cameras.
+    if (_isCustomRoute()) {
+      // Show skeleton while waiting for OSRM → loadCamerasForGeometry
+      dom.skeletonList.classList.remove('hidden');
+      removeCameraCards();
+      allCameras = [];
+      return;
+    }
+
     // Determine which regions the route passes through
     const neededRegions = new Set();
     if (currentWaypoints.length > 0) {
       for (const wp of currentWaypoints) {
-        neededRegions.add(wp.region);
+        if (wp.region && API.hasRegion(wp.region)) neededRegions.add(wp.region);
       }
     }
 
@@ -546,14 +863,17 @@ const App = (() => {
     const hadCachedData = cachedCameras && cachedCameras.length > 0;
 
     await API.fetchProgressive((region, result) => {
+      if (generation !== _routeGeneration) return; // Stale — route changed
       if (result.fromCache) anyFromCache = true;
       freshCameras.push(...(result.data || []));
       // Only re-render if we didn't have cached data, or if fresh data differs
       if (!hadCachedData) {
-        allCameras = freshCameras.slice();
+        allCameras = freshCameras;
         applyFilters();
       }
     }, neededRegions.size > 0 ? neededRegions : null);
+
+    if (generation !== _routeGeneration) return; // Route changed during fetch
 
     // Final update with all fresh data (even if we showed cached)
     if (freshCameras.length > 0) {
@@ -576,7 +896,11 @@ const App = (() => {
     // Use OSRM geometry with tight buffer when available, fall back to waypoints
     const useGeometry = currentRouteGeometry && currentRouteGeometry.length > 0;
     const filterPath = useGeometry ? currentRouteGeometry : currentWaypoints;
-    const buffer = useGeometry ? 2 : (routeData?.corridorBuffer || 25);
+    // OSRM geometry: 1km (road-level precision). Predefined waypoints: use configured
+    // buffer. Straight-line (2 waypoints, no geometry): 5km to avoid catching
+    // cameras on parallel highways near the route endpoints.
+    const buffer = useGeometry ? 1
+      : (currentWaypoints.length > 2 ? (routeData?.corridorBuffer || 25) : 5);
 
     // Filter by corridor
     let cameras = filterPath.length > 0
@@ -665,7 +989,7 @@ const App = (() => {
       const imgSrc = cam.thumbnailUrl || cam.imageUrl;
       card.innerHTML = `
         <div class="camera-thumb">
-          <img src="img/placeholder.svg"
+          <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
                data-src="${imgSrc}"
                alt="${cam.name}"
                width="640" height="360"
@@ -720,7 +1044,7 @@ const App = (() => {
       const showDir = dir && dir.toLowerCase() !== 'unknown' && !nameLower.includes(dir.toLowerCase());
       return `
         <div class="cluster-slide" data-cam-id="${cam.id}" data-slide-idx="${i}">
-          <img src="img/placeholder.svg"
+          <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
                data-src="${imgSrc}"
                alt="${cam.name}"
                width="640" height="360"
@@ -941,6 +1265,24 @@ const App = (() => {
     setupLazyLoading();
     setupScrollTracking(filteredCameras);
     prefetchUpcoming(filteredCameras);
+
+    // On wide layout, auto-zoom map to show cameras visible in the list
+    if (isWideLayout() && !_hasZoomedForScroll) {
+      requestAnimationFrame(() => {
+        _hasZoomedForScroll = true;
+        const listRect = dom.cameraList.getBoundingClientRect();
+        const visIds = new Set();
+        for (const card of dom.cameraList.querySelectorAll('.camera-card')) {
+          const rect = card.getBoundingClientRect();
+          if (rect.top < listRect.bottom && rect.bottom > listRect.top) {
+            visIds.add(card.dataset.id);
+          }
+        }
+        if (visIds.size > 0) {
+          TripMap.fitToVisible(visIds);
+        }
+      });
+    }
   }
 
   // Time-bucketed cache key: same URL reused within each bucket so SW cache hits.
@@ -962,7 +1304,7 @@ const App = (() => {
             if (!img.dataset.src) { observer.unobserve(img); continue; }
             img.src = cacheBustUrl(img.dataset.src);
             img.removeAttribute('data-src');
-            img.onerror = () => { img.src = 'img/placeholder.svg'; };
+            img.onerror = () => { img.style.opacity = '0'; };
             observer.unobserve(img);
           }
         }
@@ -1269,8 +1611,7 @@ const App = (() => {
     }, 350);
   }
 
-  function collapseSheet() {
-    if (!sheetRevealed || isWideLayout()) return;
+  function _collapseSheetDOM() {
     sheetRevealed = false;
     dom.mapContainer.style.height = '';
     dom.sheet.classList.remove('revealed');
@@ -1279,6 +1620,18 @@ const App = (() => {
     dom.cameraList.style.overflowY = 'hidden';
     dom.cameraList.scrollTop = 0;
     TripMap.invalidateSize();
+  }
+
+  /** Reset UI to the overview/collapsed state (used when route changes). */
+  function resetToOverview() {
+    _hasZoomedForScroll = false;
+    if (!isWideLayout() && sheetRevealed) _collapseSheetDOM();
+    else dom.cameraList.scrollTop = 0;
+  }
+
+  function collapseSheet() {
+    if (!sheetRevealed || isWideLayout()) return;
+    _collapseSheetDOM();
     setTimeout(() => TripMap.fitToRoute(currentWaypoints, { paddingBottom: 140 }), 200);
   }
 
