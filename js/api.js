@@ -4,6 +4,7 @@
 
 const API = (() => {
   const CORS_PROXY = 'https://corsproxy.io/?url=';
+  const CORS_PROXY_ALT = 'https://api.allorigins.win/raw?url=';
 
   // ── Camera API Registry ────────────────────────────────────────
   // Each entry: { url, normalizer, country, needsProxy }
@@ -104,14 +105,18 @@ const API = (() => {
 
   // ── Network helpers ────────────────────────────────────────────
 
-  // Parse JSON or JSONP (some endpoints like WSDOT serve .js files with callback wrappers)
+  // Parse JSON, JSONP callback, or JS variable assignment
   async function parseJSON(resp) {
     const text = await resp.text();
     try {
       return JSON.parse(text);
     } catch (e) {
-      const match = text.match(/^\s*\w+\s*\(\s*([\s\S]*?)\s*\)\s*;?\s*$/);
-      if (match) return JSON.parse(match[1]);
+      // JSONP: callback({...})
+      const jsonp = text.match(/^\s*\w+\s*\(\s*([\s\S]*?)\s*\)\s*;?\s*$/);
+      if (jsonp) return JSON.parse(jsonp[1]);
+      // JS assignment: var name = {...};
+      const assign = text.match(/^\s*(?:var|let|const)\s+\w+\s*=\s*([\s\S]*?)\s*;?\s*$/);
+      if (assign) return JSON.parse(assign[1]);
       throw e;
     }
   }
@@ -157,12 +162,29 @@ const API = (() => {
     }
   }
 
-  // Try direct, then proxy
+  async function fetchWithAltProxy(url, options = {}) {
+    const proxied = CORS_PROXY_ALT + encodeURIComponent(url);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), getTimeouts().proxy);
+    try {
+      const resp = await fetch(proxied, { ...options, signal: controller.signal });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      return await parseJSON(resp);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  // Try direct, then primary proxy, then alt proxy
   async function fetchWithRetry(url) {
     try {
       return await fetchDirect(url);
     } catch (e) {
-      return await fetchWithProxy(url);
+      try {
+        return await fetchWithProxy(url);
+      } catch (e2) {
+        return await fetchWithAltProxy(url);
+      }
     }
   }
 
