@@ -165,24 +165,6 @@ const Cameras = (() => {
       });
   }
 
-  // Normalize WSDOT camera data
-  function normalizeWA(data) {
-    if (!Array.isArray(data)) return [];
-    return data.filter(cam => cam.CameraLocation?.Latitude && cam.CameraLocation?.Longitude)
-      .map(cam => ({
-        id: `wa-${cam.CameraID}`,
-        name: cam.Title || cam.CameraLocation?.Description || 'Unknown',
-        highway: cam.CameraLocation?.RoadName || '',
-        region: 'WA',
-        lat: cam.CameraLocation.Latitude,
-        lon: cam.CameraLocation.Longitude,
-        imageUrl: cam.ImageURL || '',
-        status: cam.IsActive ? 'active' : 'inactive',
-        direction: cam.CameraLocation?.Direction || '',
-        lastUpdated: null,
-      }));
-  }
-
   // Generic IBI 511 normalizer — same format as Alberta but with configurable region code
   function normalizeIBI(data, region) {
     if (!Array.isArray(data)) return [];
@@ -637,7 +619,6 @@ const Cameras = (() => {
   return {
     normalizeAlberta,
     normalizeBC,
-    normalizeWA,
     normalizeIBI,
     normalizeQC,
     normalizeMD,

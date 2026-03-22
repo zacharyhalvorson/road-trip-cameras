@@ -175,7 +175,6 @@ const API = (() => {
     if (normName === 'normalizeIBI') return (d) => Cameras.normalizeIBI(d, region);
     if (normName === 'normalizeAlberta') return Cameras.normalizeAlberta;
     if (normName === 'normalizeBC') return Cameras.normalizeBC;
-    if (normName === 'normalizeWA') return Cameras.normalizeWA;
     if (normName === 'normalizeQC') return Cameras.normalizeQC;
     if (normName === 'normalizeMD') return Cameras.normalizeMD;
     if (normName === 'normalizeOH') return Cameras.normalizeOH;
