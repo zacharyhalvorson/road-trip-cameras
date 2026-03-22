@@ -284,7 +284,7 @@ const App = (() => {
               if (fromStop && fromStop.source !== 'geocode' && fromStop.source !== 'geolocation' && !_prefsOrHashSetOrigin) {
                 fromStop = city;
                 // Set destination to closest major city that's >50km away
-                const majorCityIds = ['calgary', 'vancouver', 'seattle', 'kamloops', 'kelowna', 'lethbridge', 'bellingham'];
+                const majorCityIds = ['calgary', 'vancouver', 'seattle', 'kamloops', 'kelowna', 'vernon', 'penticton', 'lethbridge', 'bellingham', 'nelson', 'cranbrook'];
                 const majorStops = allStops.filter(s => majorCityIds.includes(s.id) && Cameras.haversine(latitude, longitude, s.lat, s.lon) > 50);
                 if (majorStops.length > 0) {
                   toStop = Cameras.nearestStop(latitude, longitude, majorStops);
