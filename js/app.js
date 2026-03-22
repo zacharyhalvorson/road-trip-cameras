@@ -215,9 +215,7 @@ const App = (() => {
       for (const card of cards) {
         if (visibleSet.has(card.dataset.id)) {
           _mapInitiatedScroll = true;
-          card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          card.classList.add('highlighted');
-          setTimeout(() => card.classList.remove('highlighted'), 2000);
+          highlightCard(card);
           _topCameraId = card.dataset.id;
           // Clear flag after scroll settles
           setTimeout(() => { _mapInitiatedScroll = false; }, 800);
@@ -732,17 +730,29 @@ const App = (() => {
     requestAnimationFrame(() => _openCameraFromHash());
   }
 
+  // ── Highlight + scroll helper ───────────────────────────────
+
+  function highlightCard(card) {
+    if (!card) return;
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.classList.add('highlighted');
+    setTimeout(() => card.classList.remove('highlighted'), 2000);
+  }
+
   // ── Snap to Current Location ─────────────────────────────────
 
   function snapToCurrentLocation() {
-    if (!userLocation) return;
+    const cards = dom.cameraList.querySelectorAll('.camera-card');
 
-    // Find nearest camera in the current filtered list
+    if (!userLocation) {
+      highlightCard(cards[0]);
+      return;
+    }
+
     const { lat, lon } = userLocation;
     let nearestCard = null;
     let minDist = Infinity;
 
-    const cards = dom.cameraList.querySelectorAll('.camera-card');
     for (const card of cards) {
       const cam = filteredCameras.find(c => c.id === card.dataset.id);
       if (!cam) continue;
@@ -753,12 +763,8 @@ const App = (() => {
       }
     }
 
-    if (nearestCard) {
-      nearestCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      nearestCard.classList.add('highlighted');
-      setTimeout(() => nearestCard.classList.remove('highlighted'), 2000);
-      TripMap.panTo(userLocation.lat, userLocation.lon);
-    }
+    highlightCard(nearestCard);
+    if (nearestCard) TripMap.panTo(userLocation.lat, userLocation.lon);
   }
 
   // ── URL Hash ─────────────────────────────────────────────────
@@ -1509,9 +1515,7 @@ const App = (() => {
       }
     }
     if (card) {
-      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      card.classList.add('highlighted');
-      setTimeout(() => card.classList.remove('highlighted'), 2000);
+      highlightCard(card);
     }
 
     // Find cluster for modal navigation
@@ -1808,11 +1812,15 @@ const App = (() => {
     const sheet = dom.sheet;
     let startY = 0;
     let dragging = false;
+    let didDrag = false;
     const DRAG_THRESHOLD = 30;
+    let lastTapTime = 0;
+    const DOUBLE_TAP_MS = 300;
 
     function onStart(e) {
       if (isWideLayout()) return;
       dragging = true;
+      didDrag = false;
       startY = (e.touches ? e.touches[0] : e).clientY;
       sheet.style.transition = 'none';
       e.preventDefault();
@@ -1825,10 +1833,12 @@ const App = (() => {
 
       if (sheetRevealed && delta > DRAG_THRESHOLD) {
         dragging = false;
+        didDrag = true;
         sheet.style.transition = '';
         collapseSheet();
       } else if (!sheetRevealed && delta < -DRAG_THRESHOLD) {
         dragging = false;
+        didDrag = true;
         sheet.style.transition = '';
         revealSheet();
       }
@@ -1836,8 +1846,21 @@ const App = (() => {
 
     function onEnd() {
       if (!dragging) return;
+      const tapped = !didDrag;
       dragging = false;
+      didDrag = false;
       sheet.style.transition = '';
+
+      if (tapped) {
+        const now = Date.now();
+        if (now - lastTapTime < DOUBLE_TAP_MS) {
+          lastTapTime = 0;
+          if (!sheetRevealed) revealSheet();
+          snapToCurrentLocation();
+        } else {
+          lastTapTime = now;
+        }
+      }
     }
 
     handle.addEventListener('touchstart', onStart, { passive: false });
