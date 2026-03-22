@@ -38,6 +38,7 @@
         { "id": "cranbrook", "name": "Cranbrook", "region": "BC", "lat": 49.5097, "lon": -115.7693 },
         { "id": "creston", "name": "Creston", "region": "BC", "lat": 49.0955, "lon": -116.5137 },
         { "id": "castlegar", "name": "Castlegar", "region": "BC", "lat": 49.3263, "lon": -117.6593 },
+        { "id": "kelowna", "name": "Kelowna", "region": "BC", "lat": 49.8880, "lon": -119.4960 },
         { "id": "osoyoos", "name": "Osoyoos", "region": "BC", "lat": 49.0329, "lon": -119.4691 },
         { "id": "keremeos", "name": "Keremeos", "region": "BC", "lat": 49.2024, "lon": -119.8292 },
         { "id": "princeton", "name": "Princeton", "region": "BC", "lat": 49.4586, "lon": -120.5064 },
