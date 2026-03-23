@@ -453,18 +453,14 @@ const Cameras = (() => {
     return waypoints.map(w => `${w.lat.toFixed(3)},${w.lon.toFixed(3)}`).join('|');
   }
 
-  // Filter cameras to those within the route corridor.
-  // Uses segment projection for precision, then verifies with direct haversine
-  // to sampled route points as a safety net against projection edge cases.
-  // Downsample a dense polyline to reduce segment count for filtering.
+  // Downsample a dense polyline to reduce segment count for filtering/sorting.
   // Keeps every Nth point so that spacing is roughly `targetSpacingKm`.
-  // Always preserves first and last points.
-  function _downsamplePolyline(waypoints, targetSpacingKm) {
+  function downsamplePolyline(waypoints, targetSpacingKm) {
     if (waypoints.length <= 100) return waypoints;
-    // Estimate total length using first/last and midpoint
     const n = waypoints.length;
+    // Straight-line distance × 1.3 to approximate road sinuosity
     const totalKm = haversine(waypoints[0].lat, waypoints[0].lon,
-      waypoints[n - 1].lat, waypoints[n - 1].lon) * 1.3; // rough route factor
+      waypoints[n - 1].lat, waypoints[n - 1].lon) * 1.3;
     const avgSpacing = totalKm / n;
     const step = Math.max(1, Math.round(targetSpacingKm / avgSpacing));
     if (step <= 1) return waypoints;
@@ -474,23 +470,24 @@ const Cameras = (() => {
     return result;
   }
 
+  // Filter cameras to those within the route corridor.
+  // Uses segment projection for precision, then verifies with direct haversine
+  // to sampled route points as a safety net against projection edge cases.
   function filterByCorridor(cameras, waypoints, bufferKm) {
-    // Downsample dense OSRM geometry — ~0.5km spacing is plenty for 1km buffer
-    const filtered = _downsamplePolyline(waypoints, 0.5);
-    const wpKey = getCorridorCacheKey(filtered);
+    const wpKey = getCorridorCacheKey(waypoints);
     if (_corridorCache.waypointKey !== wpKey) {
       _corridorCache = { waypointKey: wpKey, distances: new Map() };
     }
     const distCache = _corridorCache.distances;
 
     // Pre-sample route points for haversine verification
-    const verifySamples = _buildRouteSamples(filtered, bufferKm);
+    const verifySamples = _buildRouteSamples(waypoints, bufferKm);
 
     return cameras.filter(cam => {
       if (!isHighwayCamera(cam)) return false;
       let dist = distCache.get(cam.id);
       if (dist === undefined) {
-        dist = pointToPolylineDistance(cam.lat, cam.lon, filtered);
+        dist = pointToPolylineDistance(cam.lat, cam.lon, waypoints);
         distCache.set(cam.id, dist);
       }
       if (dist > bufferKm) return false;
@@ -519,11 +516,10 @@ const Cameras = (() => {
 
   // Sort cameras by their position along the route
   function sortByRoute(cameras, waypoints) {
-    // Downsample and pre-compute positions to avoid repeated O(segments) work
-    const sortPath = _downsamplePolyline(waypoints, 0.5);
+    // Pre-compute positions to avoid repeated O(segments) work per comparison
     const posMap = new Map();
     for (const cam of cameras) {
-      posMap.set(cam.id, routePosition(cam.lat, cam.lon, sortPath));
+      posMap.set(cam.id, routePosition(cam.lat, cam.lon, waypoints));
     }
     return cameras.slice().sort((a, b) => posMap.get(a.id) - posMap.get(b.id));
   }
@@ -694,6 +690,7 @@ const Cameras = (() => {
     normalizeND,
     normalizeArcGIS,
     normalizeCA,
+    downsamplePolyline,
     filterByCorridor,
     sortByRoute,
     clusterCameras,

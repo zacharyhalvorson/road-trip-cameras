@@ -12,6 +12,24 @@ const App = (() => {
   let currentWaypoints = [];
   let currentRouteGeometry = null; // Dense OSRM road geometry for precise filtering
   let _routeGeneration = 0; // Incremented on each route change to cancel stale loads
+
+  // Trailing-edge debounce that checks generation is still current before firing
+  function _debouncedApplyFilters(generation, delay) {
+    let timer = null;
+    return {
+      schedule() {
+        if (!timer) {
+          timer = setTimeout(() => {
+            timer = null;
+            if (generation === _routeGeneration) applyFilters();
+          }, delay);
+        }
+      },
+      flush() {
+        if (timer) { clearTimeout(timer); timer = null; }
+      }
+    };
+  }
   let fromStop = null;
   let toStop = null;
   let dropdownTarget = null; // 'from' or 'to'
@@ -730,21 +748,15 @@ const App = (() => {
 
     // Fetch cameras for detected regions
     const freshCameras = [];
-    let _filterTimer = null;
+    const debounce = _debouncedApplyFilters(generation, 150);
     await API.fetchProgressive((region, result) => {
       if (generation !== _routeGeneration) return; // Stale
       freshCameras.push(...(result.data || []));
       allCameras = freshCameras;
       _lastFilteredIds = ''; // Force re-filter with each new batch
-      // Debounce: batch rapid region arrivals into a single applyFilters
-      if (!_filterTimer) {
-        _filterTimer = setTimeout(() => {
-          _filterTimer = null;
-          if (generation === _routeGeneration) applyFilters();
-        }, 150);
-      }
+      debounce.schedule();
     }, neededRegions);
-    if (_filterTimer) { clearTimeout(_filterTimer); _filterTimer = null; }
+    debounce.flush();
 
     if (generation !== _routeGeneration) return; // Route changed during fetch
     if (freshCameras.length > 0) {
@@ -897,7 +909,7 @@ const App = (() => {
     const freshCameras = [];
     const hadCachedData = cachedCameras && cachedCameras.length > 0;
 
-    let _filterTimer2 = null;
+    const debounce2 = _debouncedApplyFilters(generation, 150);
     await API.fetchProgressive((region, result) => {
       if (generation !== _routeGeneration) return; // Stale — route changed
       if (result.fromCache) anyFromCache = true;
@@ -905,16 +917,10 @@ const App = (() => {
       // Only re-render if we didn't have cached data, or if fresh data differs
       if (!hadCachedData) {
         allCameras = freshCameras;
-        // Debounce: batch rapid region arrivals into a single applyFilters
-        if (!_filterTimer2) {
-          _filterTimer2 = setTimeout(() => {
-            _filterTimer2 = null;
-            if (generation === _routeGeneration) applyFilters();
-          }, 150);
-        }
+        debounce2.schedule();
       }
     }, neededRegions.size > 0 ? neededRegions : null);
-    if (_filterTimer2) { clearTimeout(_filterTimer2); _filterTimer2 = null; }
+    debounce2.flush();
 
     if (generation !== _routeGeneration) return; // Route changed during fetch
 
@@ -945,14 +951,18 @@ const App = (() => {
     const buffer = useGeometry ? 1
       : (currentWaypoints.length > 2 ? (routeData?.corridorBuffer || 25) : 5);
 
+    // Downsample dense OSRM geometry once — 0.5km spacing is plenty for 1km buffer
+    const reducedPath = filterPath.length > 0
+      ? Cameras.downsamplePolyline(filterPath, 0.5) : filterPath;
+
     // Filter by corridor
-    let cameras = filterPath.length > 0
-      ? Cameras.filterByCorridor(allCameras, filterPath, buffer)
+    let cameras = reducedPath.length > 0
+      ? Cameras.filterByCorridor(allCameras, reducedPath, buffer)
       : allCameras;
 
     // Sort by route order
-    if (filterPath.length > 0) {
-      cameras = Cameras.sortByRoute(cameras, filterPath);
+    if (reducedPath.length > 0) {
+      cameras = Cameras.sortByRoute(cameras, reducedPath);
     }
 
     // Skip re-render if the camera list hasn't changed
