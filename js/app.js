@@ -26,7 +26,10 @@ const App = (() => {
         }
       },
       flush() {
-        if (timer) { clearTimeout(timer); timer = null; }
+        if (timer) {
+          clearTimeout(timer); timer = null;
+          if (generation === _routeGeneration) applyFilters();
+        }
       }
     };
   }
@@ -804,7 +807,7 @@ const App = (() => {
 
   function highlightCard(card) {
     if (!card) return;
-    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     card.classList.add('highlighted');
     setTimeout(() => card.classList.remove('highlighted'), 2000);
   }
@@ -954,11 +957,8 @@ const App = (() => {
       if (generation !== _routeGeneration) return; // Stale — route changed
       if (result.fromCache) anyFromCache = true;
       freshCameras.push(...(result.data || []));
-      // Only re-render if we didn't have cached data, or if fresh data differs
-      if (!hadCachedData) {
-        allCameras = freshCameras;
-        debounce2.schedule();
-      }
+      allCameras = freshCameras;
+      debounce2.schedule();
     }, neededRegions.size > 0 ? neededRegions : null);
     debounce2.flush();
 

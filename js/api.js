@@ -292,6 +292,9 @@ const API = (() => {
     for (const url of urls) {
       try { return await fetchWithProxy(url); } catch (e) { /* try next */ }
     }
+    for (const url of urls) {
+      try { return await fetchWithAltProxy(url); } catch (e) { /* try next */ }
+    }
     return null;
   }
 
