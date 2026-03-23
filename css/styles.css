@@ -23,6 +23,8 @@
   --shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
   --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.06);
   --shadow-lg: 0 12px 48px rgba(0, 0, 0, 0.12);
+  --skeleton-base: #e2e8f0;
+  --skeleton-highlight: #eef2f7;
 
   /* Location color */
   --blue: #007AFF;
@@ -71,6 +73,8 @@
     --traffic-clear: #34D058;
     --traffic-mild: #F5B800;
     --traffic-heavy: #F85149;
+    --skeleton-base: #1a2540;
+    --skeleton-highlight: #243050;
   }
 }
 
@@ -1147,6 +1151,14 @@ button {
   padding: 0;
 }
 
+.camera-list:has(.skeleton-list:not(.hidden)) .ptr {
+  display: none;
+}
+
+.ptr.loading ~ .skeleton-list {
+  display: none;
+}
+
 .skeleton-card {
   position: relative;
   margin-bottom: 10px;
@@ -1159,7 +1171,7 @@ button {
 .skeleton-img-full {
   width: 100%;
   aspect-ratio: 16 / 9;
-  background: linear-gradient(110deg, var(--navy) 30%, var(--surface-raised) 50%, var(--navy) 70%);
+  background: linear-gradient(110deg, var(--skeleton-base) 30%, var(--skeleton-highlight) 50%, var(--skeleton-base) 70%);
   background-size: 200% 100%;
   animation: shimmer 1.5s linear infinite;
 }
