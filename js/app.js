@@ -755,6 +755,16 @@ const App = (() => {
     if (!filterPath || filterPath.length === 0) return;
     // Interpolate sparse waypoints so region detection finds intermediate regions
     const regionPath = filterPath.length < 10 ? _interpolateWaypoints(filterPath, 20) : filterPath;
+
+    // Show cached cameras instantly while region detection hits the network
+    const cachedCameras = API.getCachedImmediate(null);
+    if (cachedCameras && generation === _routeGeneration) {
+      allCameras = cachedCameras;
+      _lastFilteredIds = '';
+      applyFilters();
+      dom.skeletonList.classList.add('hidden');
+    }
+
     const neededRegions = await API.getRegionsForRoute(regionPath);
     if (generation !== _routeGeneration) return; // Route changed while detecting regions
     if (neededRegions.size === 0) {
@@ -906,10 +916,11 @@ const App = (() => {
     // With only 2 waypoints (origin + destination), the straight-line buffer
     // catches too many off-route cameras.
     if (_isCustomRoute()) {
-      // Show skeleton while waiting for OSRM → loadCamerasForGeometry
+      // Show skeleton and peek sheet immediately so user sees activity
       dom.skeletonList.classList.remove('hidden');
       removeCameraCards();
       allCameras = [];
+      if (!sheetRevealed && !isWideLayout()) peekSheet();
       return;
     }
 
@@ -923,7 +934,7 @@ const App = (() => {
 
     // ── Instant render from cache (synchronous, no network wait) ──
     const cachedCameras = API.getCachedImmediate(neededRegions.size > 0 ? neededRegions : null);
-    if (cachedCameras && cachedCameras.length > 0) {
+    if (cachedCameras) {
       allCameras = cachedCameras;
       applyFilters();
     } else {
