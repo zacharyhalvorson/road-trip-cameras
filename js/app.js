@@ -1714,14 +1714,27 @@ const App = (() => {
           const progress = pull / PTR_MAX;
           ptr.style.height = pull + 'px';
           ptr.style.opacity = progress;
-          ptr.querySelector('svg').style.transform = `rotate(${progress * 360}deg)`;
+          // Reveal ticks proportionally as user pulls
+          const ticks = ptr.querySelectorAll('.ios-tick');
+          const visibleCount = Math.round(progress * ticks.length);
+          ticks.forEach((t, i) => { t.style.opacity = i < visibleCount ? '0.6' : '0.15'; });
           if (pull >= PTR_TRIGGER && !triggered) {
             triggered = true;
-            // Start fetch immediately so it can finish before release
+            // Start spinning and fetch immediately
+            ticks.forEach(t => { t.style.opacity = ''; });
+            ptr.classList.add('spinning');
             isRefreshing = true;
+            const t0 = Date.now();
             doRefresh().then(() => {
-              isRefreshing = false;
-              ptr.classList.remove('loading');
+              // Keep spinner visible for at least 600ms so it doesn't just flash
+              const elapsed = Date.now() - t0;
+              const delay = Math.max(0, 600 - elapsed);
+              setTimeout(() => {
+                isRefreshing = false;
+                ptr.classList.remove('loading', 'spinning');
+                ptr.style.height = '';
+                ptr.style.opacity = '';
+              }, delay);
             });
           }
         }
@@ -1740,24 +1753,26 @@ const App = (() => {
 
     document.addEventListener('touchend', () => {
       if (!isPulling) return;
-
-      // Always snap the pull visual back
-      resetPull();
-
-      // If refresh is still in progress, show a non-intrusive floating spinner
-      if (isRefreshing) {
-        ptr.classList.add('loading');
-      }
-
       isPulling = false;
+
+      if (isRefreshing) {
+        // Transition from inline pull styles to the CSS loading state
+        ptr.classList.remove('pulling');
+        ptr.style.height = '';
+        ptr.style.opacity = '';
+        ptr.querySelectorAll('.ios-tick').forEach(t => { t.style.opacity = ''; });
+        ptr.classList.add('loading');
+      } else {
+        resetPull();
+      }
     }, { passive: true });
 
     function resetPull() {
       isPulling = false;
-      ptr.classList.remove('pulling');
+      ptr.classList.remove('pulling', 'spinning');
       ptr.style.height = '';
       ptr.style.opacity = '';
-      ptr.querySelector('svg').style.transform = '';
+      ptr.querySelectorAll('.ios-tick').forEach(t => { t.style.opacity = ''; });
     }
 
     async function doRefresh() {
