@@ -354,14 +354,14 @@ const Cameras = (() => {
         const imgUrl = a.CameraImageURL || a.CameraImag || a.imageurl || a.ImageUrl || a.ImageURL || a.image_url || a.URL || a.url || '';
         return {
           id: `${prefix}-${a.OBJECTID || a.objectid || a.FID || a.id || a.CameraID || Math.random().toString(36).slice(2, 8)}`,
-          name: a.title || a.Title || a.CameraTitl || a.description || a.Description || a.NAME || a.Name || 'Unknown',
+          name: a.title || a.Title || a.CameraTitle || a.CameraTitl || a.description || a.Description || a.NAME || a.Name || 'Unknown',
           highway: a.route || a.Route || a.road || a.Road || a.RoadName || a.StateRoute || '',
           region,
           lat,
           lon,
           imageUrl: imgUrl,
           status: 'active',
-          direction: a.direction || a.Direction || '',
+          direction: a.direction || a.Direction || a.CompassDirection || '',
           lastUpdated: null,
         };
       });
