@@ -294,6 +294,11 @@ const App = (() => {
                 loadCameras();
                 updateHash();
                 savePrefs();
+              } else if (fromStop && fromStop.source === 'geolocation') {
+                // Update displayName for returning users who had "Current Location" saved
+                fromStop.displayName = city.displayName;
+                updateRouteDisplay();
+                savePrefs();
               }
             }
           } catch (e) { /* ignore geocode failure */ }
@@ -335,6 +340,16 @@ const App = (() => {
 
     // Start camera loading immediately — no RAF delay
     loadCameras();
+
+    // If cameras take >3s to load (poor connectivity), peek the sheet with skeleton
+    if (!isWideLayout()) {
+      setTimeout(() => {
+        if (!sheetRevealed && !dom.sheet.classList.contains('peeking')) {
+          dom.skeletonList.classList.remove('hidden');
+          peekSheet();
+        }
+      }, 3000);
+    }
 
     // Pre-load region bounds for route detection
     API.loadRegionBounds();
@@ -569,7 +584,7 @@ const App = (() => {
       displayName: 'Current Location',
     };
     stop.source = 'geolocation';
-    stop.displayName = 'Current Location';
+    stop.displayName = city?.displayName || `${stop.name}, ${stop.region}`.replace(/, $/, '') || 'Current Location';
 
     if (dropdownTarget === 'from') {
       fromStop = stop;
