@@ -281,10 +281,20 @@ const API = (() => {
     return fetchRegion(region, entry.url, normalizer);
   }
 
-  // Try multiple endpoint URLs in sequence until one succeeds
   // Two-phase fetch for multi-URL endpoints: try all URLs direct first (fast),
-  // then try with proxy only if all direct attempts fail. This avoids the full
-  // retry chain per URL which can take 40s+ each when endpoints are down.
+  // then proxy only if all direct attempts fail. Avoids the full retry chain
+  // per URL which can take 40s+ each when endpoints are down.
+  // Returns raw data on success, null if all attempts fail.
+  async function tryUrlsTwoPhase(urls) {
+    for (const url of urls) {
+      try { return await fetchDirect(url); } catch (e) { /* try next */ }
+    }
+    for (const url of urls) {
+      try { return await fetchWithProxy(url); } catch (e) { /* try next */ }
+    }
+    return null;
+  }
+
   async function fetchRegionMultiUrl(region, urls, normalizer) {
     const cached = getCachedData(region);
     if (cached && cached.fresh) {
@@ -292,40 +302,14 @@ const API = (() => {
     }
     if (cached && !cached.fresh) {
       // Stale cache — return it, refresh in background
-      (async () => {
-        for (const url of urls) {
-          try {
-            const raw = await fetchDirect(url);
-            setCachedData(region, raw);
-            return;
-          } catch (e) { /* try next URL */ }
-        }
-        // Direct failed for all — try with proxy
-        for (const url of urls) {
-          try {
-            const raw = await fetchWithProxy(url);
-            setCachedData(region, raw);
-            return;
-          } catch (e) { /* try next URL */ }
-        }
-      })();
+      tryUrlsTwoPhase(urls).then(raw => { if (raw) setCachedData(region, raw); });
       return { data: normalizer(cached.data), fromCache: true, stale: true };
     }
-    // No cache — Phase 1: try each URL direct (fast pass)
-    for (const url of urls) {
-      try {
-        const raw = await fetchDirect(url);
-        setCachedData(region, raw);
-        return { data: normalizer(raw), fromCache: false };
-      } catch (e) { /* try next URL */ }
-    }
-    // Phase 2: try each URL with proxy
-    for (const url of urls) {
-      try {
-        const raw = await fetchWithProxy(url);
-        setCachedData(region, raw);
-        return { data: normalizer(raw), fromCache: false };
-      } catch (e) { /* try next URL */ }
+    // No cache — try direct then proxy
+    const raw = await tryUrlsTwoPhase(urls);
+    if (raw) {
+      setCachedData(region, raw);
+      return { data: normalizer(raw), fromCache: false };
     }
     // All URLs failed — try fallback file
     console.warn(`${region} all API URLs failed, using fallback`);
