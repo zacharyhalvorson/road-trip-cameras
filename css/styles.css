@@ -840,8 +840,8 @@ button {
   position: absolute;
   left: 0;
   right: 0;
-  top: 0;
-  height: 80px !important;
+  top: 20px;
+  height: 60px !important;
   overflow: visible;
   opacity: 1 !important;
   z-index: 3;
