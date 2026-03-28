@@ -342,6 +342,9 @@ const App = (() => {
 
     // Online/offline detection
     updateOnlineStatus();
+
+    // Single visibilitychange listener for incident polling (not inside _startIncidentPolling)
+    document.addEventListener('visibilitychange', _onVisibilityChangeForIncidents);
   }
 
   // Extract route setup + camera loading so it can run immediately from cache
@@ -385,13 +388,49 @@ const App = (() => {
 
     // Pre-load region bounds for route detection
     API.loadRegionBounds();
+
+    // Handle incident hash (from notification click opening new window)
+    _handleIncidentHash();
+
+    // Enable incident notifications after route is ready
+    _enableIncidentNotifications();
   }
 
   function bindEvents() {
     // Route inputs
     dom.fromInput.addEventListener('click', () => openDropdown('from'));
     dom.toInput.addEventListener('click', () => openDropdown('to'));
-    dom.swapBtn.addEventListener('click', swapStops);
+    // Swap: short tap swaps, long press opens notifications panel
+    let _swapLongPressTimer = null;
+    let _swapDidLongPress = false;
+
+    dom.swapBtn.addEventListener('pointerdown', (e) => {
+      _swapDidLongPress = false;
+      _swapLongPressTimer = setTimeout(() => {
+        _swapDidLongPress = true;
+        _swapLongPressTimer = null;
+        _openNotificationsPanel();
+      }, 500);
+    });
+    dom.swapBtn.addEventListener('pointerup', () => {
+      if (_swapLongPressTimer) {
+        clearTimeout(_swapLongPressTimer);
+        _swapLongPressTimer = null;
+        if (!_swapDidLongPress) swapStops();
+      }
+    });
+    const _cancelLongPress = () => {
+      if (_swapLongPressTimer) {
+        clearTimeout(_swapLongPressTimer);
+        _swapLongPressTimer = null;
+      }
+    };
+    dom.swapBtn.addEventListener('pointerleave', _cancelLongPress);
+    dom.swapBtn.addEventListener('pointercancel', _cancelLongPress);
+    dom.swapBtn.addEventListener('click', (e) => {
+      if (_swapDidLongPress) e.preventDefault();
+    });
+    dom.swapBtn.addEventListener('contextmenu', (e) => e.preventDefault());
 
     // Dropdown
     dom.dropdownOverlay.addEventListener('click', closeDropdown);
@@ -411,7 +450,9 @@ const App = (() => {
     // Keyboard
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
-        if (dom.modalOverlay.classList.contains('active')) closeModal();
+        const notifPanel = document.getElementById('notifPanel');
+        if (notifPanel?.classList.contains('active')) _closeNotificationsPanel();
+        else if (dom.modalOverlay.classList.contains('active')) closeModal();
         else if (dom.dropdown.classList.contains('active')) closeDropdown();
       }
     });
@@ -423,8 +464,9 @@ const App = (() => {
     window.addEventListener('online', updateOnlineStatus);
     window.addEventListener('offline', updateOnlineStatus);
 
-    // Browser back/forward for camera hash
+    // Browser back/forward for camera hash + incident hash
     window.addEventListener('popstate', () => {
+      _handleIncidentHash();
       const camId = _getCameraIdFromHash();
       if (camId && !dom.modalOverlay.classList.contains('active')) {
         _openCameraFromHash();
@@ -704,6 +746,10 @@ const App = (() => {
 
     const customRoute = _isCustomRoute();
     const generation = ++_routeGeneration; // Cancel any in-flight loads from previous route
+
+    // Reset incident baseline for new route — next poll will seed the
+    // seen set with current incidents, then only notify about new ones
+    _clearSeenIncidents();
 
     if (customRoute || !routeData) {
       // Custom locations: just use origin + destination, OSRM provides the path
@@ -1062,13 +1108,20 @@ const App = (() => {
     cards.forEach(c => c.remove());
   }
 
-  function formatTimeSince(dateStr, nowMs) {
-    if (!dateStr) return '';
-    const ts = new Date(dateStr).getTime();
+  function formatTimeSince(dateStr, nowMs, compact) {
+    if (!dateStr && !compact) return '';
+    const ts = typeof dateStr === 'number' ? dateStr : new Date(dateStr).getTime();
     if (Number.isNaN(ts)) return '';
-    const diffMs = nowMs - ts;
+    const diffMs = (nowMs || Date.now()) - ts;
     if (diffMs < 0) return '';
     const mins = Math.floor(diffMs / 60000);
+    if (compact) {
+      if (mins < 1) return 'just now';
+      if (mins < 60) return `${mins}m ago`;
+      const hours = Math.floor(mins / 60);
+      if (hours < 24) return `${hours}h ago`;
+      return `${Math.floor(hours / 24)}d ago`;
+    }
     if (mins < 1) return 'Just now';
     if (mins < 60) return mins === 1 ? '1 minute ago' : `${mins} minutes ago`;
     const hours = Math.floor(mins / 60);
@@ -2444,6 +2497,13 @@ const App = (() => {
       reloading = true;
       window.location.reload();
     });
+
+    // Listen for notification click messages from service worker
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      if (event.data && event.data.type === 'NAVIGATE_INCIDENT') {
+        _navigateToIncident(event.data.lat, event.data.lon, event.data.zoom);
+      }
+    });
   }
 
   function _showUpdateBanner(waitingSW) {
@@ -2455,6 +2515,321 @@ const App = (() => {
     if (_waitingSW) {
       _waitingSW.postMessage({ type: 'SKIP_WAITING' });
     }
+  }
+
+  // ── Incident Notifications ──────────────────────────────────
+
+  const INCIDENT_POLL_INTERVAL = 3 * 60 * 1000; // 3 minutes
+  const INCIDENT_POLL_THROTTLE = 30 * 1000; // min interval between polls
+  const INCIDENT_CORRIDOR_BUFFER_GEOMETRY = 1; // km — OSRM road geometry
+  const INCIDENT_CORRIDOR_BUFFER_STRAIGHT = 3; // km — straight-line fallback
+  const NOTIF_ENABLED_KEY = 'tripcams_notif_enabled';
+  let _incidentPollTimer = null;
+  let _seenIncidentIds = new Set();
+  let _notificationsEnabled = false;
+  let _incidentBaselineLoaded = false;
+  let _notificationHistory = []; // recent incidents that triggered notifications
+  let _lastPollTime = 0;
+  let _incidentPolling = false; // guard against concurrent polls
+  // Cached per-route: recomputed on route change, reused across polls
+  let _incidentReducedPath = null;
+  let _incidentCorridorBuffer = 0;
+  let _incidentRegions = null; // Set of region codes, null = needs recompute
+
+  function _clearSeenIncidents() {
+    _seenIncidentIds = new Set();
+    _incidentBaselineLoaded = false;
+    _incidentReducedPath = null;
+    _incidentRegions = null;
+  }
+
+  function _startIncidentPolling() {
+    if (_incidentPollTimer) return;
+    setTimeout(() => _pollIncidents(), 5000);
+    _incidentPollTimer = setInterval(_pollIncidents, INCIDENT_POLL_INTERVAL);
+  }
+
+  // Registered once in init, not inside _startIncidentPolling
+  function _onVisibilityChangeForIncidents() {
+    if (document.visibilityState === 'visible' && _notificationsEnabled) {
+      _pollIncidents();
+    }
+  }
+
+  async function _pollIncidents() {
+    if (!_notificationsEnabled || !fromStop || !toStop) return;
+    if (_incidentPolling) return;
+    if (Date.now() - _lastPollTime < INCIDENT_POLL_THROTTLE) return;
+
+    _incidentPolling = true;
+    _lastPollTime = Date.now();
+
+    try {
+      // Compute regions once per route, cache for subsequent polls
+      if (!_incidentRegions) {
+        _incidentRegions = new Set();
+        for (const stop of [fromStop, toStop]) {
+          if (stop?.region && API.hasIncidentRegion(stop.region)) {
+            _incidentRegions.add(stop.region);
+          }
+        }
+        for (const wp of currentWaypoints) {
+          if (wp.region && API.hasIncidentRegion(wp.region)) _incidentRegions.add(wp.region);
+        }
+        if (currentRouteGeometry && currentRouteGeometry.length > 0) {
+          try {
+            const geoRegions = await API.getRegionsForRoute(currentRouteGeometry);
+            for (const r of geoRegions) {
+              if (API.hasIncidentRegion(r)) _incidentRegions.add(r);
+            }
+          } catch (e) { /* ignore */ }
+        }
+      }
+
+      if (_incidentRegions.size === 0) return;
+
+      const incidents = await API.fetchIncidents(_incidentRegions);
+      _processIncidents(incidents);
+    } catch (e) {
+      // Silent fail
+    } finally {
+      _incidentPolling = false;
+    }
+  }
+
+  function _processIncidents(incidents) {
+    if (!incidents || incidents.length === 0) return;
+
+    // Compute corridor filter path once per route, reuse across polls
+    if (!_incidentReducedPath) {
+      const useGeometry = currentRouteGeometry && currentRouteGeometry.length > 0;
+      const filterPath = useGeometry ? currentRouteGeometry : currentWaypoints;
+      if (!filterPath || filterPath.length === 0) return;
+      _incidentReducedPath = Cameras.downsamplePolyline(filterPath, 0.5);
+      _incidentCorridorBuffer = useGeometry
+        ? INCIDENT_CORRIDOR_BUFFER_GEOMETRY
+        : INCIDENT_CORRIDOR_BUFFER_STRAIGHT;
+    }
+
+    const corridorIncidents = incidents.filter(inc => {
+      if (!inc.lat || !inc.lon || isNaN(inc.lat) || isNaN(inc.lon)) return false;
+      return Cameras.pointToPolylineDistance(inc.lat, inc.lon, _incidentReducedPath) <= _incidentCorridorBuffer;
+    });
+
+    if (!_incidentBaselineLoaded) {
+      // Seed with existing incidents — only notify about new ones from now on
+      for (const inc of corridorIncidents) _seenIncidentIds.add(inc.id);
+      _incidentBaselineLoaded = true;
+      return;
+    }
+
+    for (const inc of corridorIncidents) {
+      if (!_seenIncidentIds.has(inc.id)) {
+        _seenIncidentIds.add(inc.id);
+        _showIncidentNotification(inc);
+      }
+    }
+  }
+
+  async function _showIncidentNotification(incident) {
+    _notificationHistory.unshift({ ...incident, notifiedAt: Date.now() });
+    if (_notificationHistory.length > 50) _notificationHistory.length = 50;
+
+    const reg = await navigator.serviceWorker?.ready;
+    if (!reg?.active) return;
+
+    reg.active.postMessage({
+      type: 'SHOW_NOTIFICATION',
+      title: incident.road ? `${incident.title} — ${incident.road}` : incident.title,
+      body: incident.description || 'Tap to view on map',
+      tag: incident.id,
+      lat: incident.lat,
+      lon: incident.lon,
+      zoom: 14,
+    });
+  }
+
+  function _navigateToIncident(lat, lon, zoom) {
+    if (!lat || !lon) return;
+    TripMap.panTo(parseFloat(lat), parseFloat(lon), parseInt(zoom) || 13);
+    if (!isWideLayout()) {
+      document.body.classList.remove('sheet-expanded');
+      dom.sheet.classList.remove('revealed');
+      dom.sheet.classList.add('peeking');
+    }
+  }
+
+  function _handleIncidentHash() {
+    const hash = window.location.hash.slice(1);
+    if (!hash) return;
+    const params = new URLSearchParams(hash);
+    const incident = params.get('incident');
+    if (!incident) return;
+    const parts = incident.split(',');
+    if (parts.length >= 2) {
+      const lat = parseFloat(parts[0]);
+      const lon = parseFloat(parts[1]);
+      const zoom = parts.length >= 3 ? parseInt(parts[2]) : 13;
+      if (!isNaN(lat) && !isNaN(lon)) {
+        setTimeout(() => _navigateToIncident(lat, lon, zoom), 500);
+        params.delete('incident');
+        const remaining = params.toString();
+        window.location.hash = remaining || '';
+      }
+    }
+  }
+
+  // Off by default — only auto-start if user previously opted in
+  function _enableIncidentNotifications() {
+    if (_notificationsEnabled) return;
+    if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
+
+    try {
+      if (localStorage.getItem(NOTIF_ENABLED_KEY) !== 'true') return;
+    } catch (e) { return; }
+
+    if (Notification.permission === 'granted') {
+      _notificationsEnabled = true;
+      _startIncidentPolling();
+    }
+  }
+
+  function _setNotificationsEnabled(enabled) {
+    try { localStorage.setItem(NOTIF_ENABLED_KEY, enabled ? 'true' : 'false'); } catch (e) { /* ignore */ }
+    const toggle = document.getElementById('notifToggle');
+
+    if (!enabled) {
+      _notificationsEnabled = false;
+      if (_incidentPollTimer) {
+        clearInterval(_incidentPollTimer);
+        _incidentPollTimer = null;
+      }
+      return;
+    }
+
+    if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+      if (toggle) toggle.checked = false;
+      return;
+    }
+
+    if (Notification.permission === 'granted') {
+      _notificationsEnabled = true;
+      _startIncidentPolling();
+      return;
+    }
+
+    if (Notification.permission === 'denied') {
+      if (toggle) toggle.checked = false;
+      return;
+    }
+
+    // Permission is 'default' — request it (this is from a user gesture)
+    Notification.requestPermission().then(result => {
+      if (result === 'granted') {
+        _notificationsEnabled = true;
+        _startIncidentPolling();
+      } else {
+        // Denied or dismissed — revert toggle
+        if (toggle) toggle.checked = false;
+        try { localStorage.setItem(NOTIF_ENABLED_KEY, 'false'); } catch (e) { /* ignore */ }
+      }
+    });
+  }
+
+  // ── Notifications Panel ─────────────────────────────────────
+
+  function _openNotificationsPanel() {
+    let panel = document.getElementById('notifPanel');
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.id = 'notifPanel';
+      panel.className = 'notif-panel-overlay';
+      document.body.appendChild(panel);
+    }
+
+    const hasNotifSupport = ('Notification' in window) && ('serviceWorker' in navigator);
+    const permDenied = hasNotifSupport && Notification.permission === 'denied';
+    const isEnabled = _notificationsEnabled;
+
+    const items = _notificationHistory.length > 0
+      ? _notificationHistory.map(inc => {
+          const time = formatTimeSince(inc.notifiedAt, Date.now(), true);
+          const title = inc.road ? `${inc.title} — ${inc.road}` : inc.title;
+          return `<button class="notif-item" data-lat="${Number(inc.lat)}" data-lon="${Number(inc.lon)}">
+            <div class="notif-item-title">${_esc(title)}</div>
+            ${inc.description ? `<div class="notif-item-desc">${_esc(inc.description)}</div>` : ''}
+            <div class="notif-item-time">${time}</div>
+          </button>`;
+        }).join('')
+      : `<div class="notif-empty">No alerts yet for this route.</div>`;
+
+    panel.innerHTML = `
+      <div class="notif-panel">
+        <div class="notif-panel-header">
+          <h2>Route Alerts</h2>
+          <button class="notif-panel-close" id="notifPanelClose" aria-label="Close">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+              <path d="M18 6L6 18M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+        <div class="notif-toggle-row">
+          <label class="notif-toggle-label" for="notifToggle">
+            <span>Push notifications</span>
+            ${permDenied ? '<span class="notif-denied">Blocked by browser</span>' : ''}
+          </label>
+          <label class="notif-switch">
+            <input type="checkbox" id="notifToggle" ${isEnabled ? 'checked' : ''} ${!hasNotifSupport || permDenied ? 'disabled' : ''}>
+            <span class="notif-switch-slider"></span>
+          </label>
+        </div>
+        <div class="notif-list">${items}</div>
+      </div>
+    `;
+
+    // Prevent scroll bleed-through to camera list underneath
+    panel.addEventListener('touchmove', (e) => {
+      // Allow scrolling inside the notif-list if it overflows
+      if (!e.target.closest('.notif-list')) e.preventDefault();
+    }, { passive: false });
+
+    requestAnimationFrame(() => panel.classList.add('active'));
+
+    panel.querySelector('#notifPanelClose').addEventListener('click', _closeNotificationsPanel);
+    panel.addEventListener('click', (e) => {
+      if (e.target === panel) _closeNotificationsPanel();
+    });
+
+    const toggle = panel.querySelector('#notifToggle');
+    if (toggle) {
+      toggle.addEventListener('change', () => _setNotificationsEnabled(toggle.checked));
+    }
+
+    panel.querySelectorAll('.notif-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const lat = parseFloat(item.dataset.lat);
+        const lon = parseFloat(item.dataset.lon);
+        if (!isNaN(lat) && !isNaN(lon)) {
+          _closeNotificationsPanel();
+          _navigateToIncident(lat, lon, 14);
+        }
+      });
+    });
+  }
+
+  function _closeNotificationsPanel() {
+    const panel = document.getElementById('notifPanel');
+    if (!panel) return;
+    panel.classList.remove('active');
+    const remove = () => { if (panel.parentNode) panel.remove(); };
+    panel.addEventListener('transitionend', remove, { once: true });
+    setTimeout(remove, 400);
+  }
+
+  const _escEl = document.createElement('div');
+  function _esc(str) {
+    _escEl.textContent = str;
+    return _escEl.innerHTML;
   }
 
   // ── Boot ─────────────────────────────────────────────────────

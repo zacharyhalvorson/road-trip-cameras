@@ -62,6 +62,163 @@ const API = (() => {
     CA: { url: null, norm: 'normalizeCA', country: 'US', multiDistrict: true },
   };
 
+  // ── Incident / Event API Registry ──────────────────────────────
+  // IBI 511 platforms expose /api/v2/get/event with the same auth pattern.
+  // Other sources use their own formats.
+  const INCIDENT_REGISTRY = {
+    // Canada — IBI 511
+    AB: { url: 'https://511.alberta.ca/api/v2/get/event' },
+    SK: { url: 'https://hotline.gov.sk.ca/api/v2/get/event' },
+    MB: { url: 'https://www.manitoba511.ca/api/v2/get/event' },
+    ON: { url: 'https://511on.ca/api/v2/get/event' },
+    NB: { url: 'https://511.gnb.ca/api/v2/get/event' },
+    NS: { url: 'https://511.novascotia.ca/api/v2/get/event' },
+    PE: { url: 'https://511.gov.pe.ca/api/v2/get/event' },
+    NL: { url: 'https://511nl.ca/api/v2/get/event' },
+    YT: { url: 'https://511yukon.ca/api/v2/get/event' },
+    // Canada — DriveBC
+    BC: { url: 'https://www.drivebc.ca/api/events/' },
+    // US — IBI 511
+    NY: { url: 'https://511ny.org/api/v2/get/event' },
+    GA: { url: 'https://511ga.org/api/v2/get/event' },
+    WI: { url: 'https://511wi.gov/api/v2/get/event' },
+    LA: { url: 'https://511la.org/api/v2/get/event' },
+    AZ: { url: 'https://az511.com/api/v2/get/event' },
+    ID: { url: 'https://511.idaho.gov/api/v2/get/event' },
+    AK: { url: 'https://511.alaska.gov/api/v2/get/event' },
+    UT: { url: 'https://udottraffic.utah.gov/api/v2/get/event' },
+    NV: { url: 'https://nvroads.com/api/v2/get/event' },
+    CT: { url: 'https://ctroads.com/api/v2/get/event' },
+    // US — Custom formats
+    WA: { url: 'https://data.wsdot.wa.gov/mobile/HighwayAlerts.json' },
+    OR: { url: 'https://tripcheck.com/Scripts/map/data/incidents.js' },
+    MD: { url: 'https://chart.maryland.gov/DataFeeds/GetEventsJson' },
+    OH: { url: 'https://publicapi.ohgo.com/api/v1/incidents' },
+  };
+
+  // Field mappings per source format — each maps to the normalized shape:
+  // { id, region, lat, lon, title, description, severity, road, startTime, lastUpdated }
+  // Values are arrays of candidate property names tried in order (first truthy wins).
+  const EVENT_FIELDS = {
+    ibi: {
+      unwrap: ['body', 'events', 'data'],
+      id: ['Id', 'id', 'ID'], lat: ['Latitude', 'latitude'], lon: ['Longitude', 'longitude'],
+      title: ['Headline', 'EventType', 'headline'], description: ['Description', 'EventSubType', 'description'],
+      severity: ['Severity', 'severity'], road: ['RoadwayName', 'Roads', 'roadway'],
+      startTime: ['StartDate', 'StartTime', 'startDate'], lastUpdated: ['LastUpdated', 'lastUpdated'],
+    },
+    bc: {
+      unwrap: ['events'],
+      id: ['id'], lat: ['latitude'], lon: ['longitude'],
+      title: ['headline', 'event_type'], description: ['description'],
+      severity: ['severity'], road: ['route', 'highway'],
+      startTime: ['start'], lastUpdated: ['last_updated'],
+    },
+    wa: {
+      unwrap: [],
+      id: ['AlertID'], lat: ['StartPoint.Latitude'], lon: ['StartPoint.Longitude'],
+      title: ['HeadlineDescription', 'EventCategory'], description: ['ExtendedDescription'],
+      severity: ['Priority'], road: ['Region'],
+      startTime: ['StartTime'], lastUpdated: ['LastUpdatedTime'],
+    },
+    or: {
+      unwrap: ['incidents', 'item'],
+      id: ['id', 'incidentId'], lat: ['lat', 'latitude'], lon: ['lon', 'lng', 'longitude'],
+      title: ['type', 'incidentType'], description: ['description', 'details'],
+      severity: ['severity'], road: ['road', 'route', 'highway'],
+      startTime: ['startTime', 'start'], lastUpdated: ['lastUpdated'],
+    },
+    md: {
+      unwrap: ['events'],
+      id: ['id', 'Id'], lat: ['latitude', 'Latitude'], lon: ['longitude', 'Longitude'],
+      title: ['description', 'Description', 'eventType'], description: ['details', 'Details'],
+      severity: ['severity', 'Severity'], road: ['roadName', 'RoadName', 'road'],
+      startTime: ['startDate', 'StartDate'], lastUpdated: ['lastUpdated', 'LastUpdated'],
+    },
+    oh: {
+      unwrap: ['results', 'incidents'],
+      id: ['id'], lat: ['latitude'], lon: ['longitude'],
+      title: ['category', 'type'], description: ['description'],
+      severity: ['severity'], road: ['roadName', 'route'],
+      startTime: ['startDate'], lastUpdated: ['lastUpdated'],
+    },
+  };
+
+  // Resolve a dotted path like 'StartPoint.Latitude' on an object
+  function _resolveField(obj, path) {
+    const parts = path.split('.');
+    let val = obj;
+    for (const p of parts) {
+      if (val == null) return undefined;
+      val = val[p];
+    }
+    return val;
+  }
+
+  // Pick the first truthy value from candidate field names
+  function _pick(obj, fields) {
+    for (const f of fields) {
+      const v = _resolveField(obj, f);
+      if (v != null && v !== '') return v;
+    }
+    return undefined;
+  }
+
+  function normalizeEvents(data, region, format) {
+    if (!data) return [];
+    const fields = EVENT_FIELDS[format] || EVENT_FIELDS.ibi;
+
+    // Unwrap: try each candidate wrapper property, fall back to raw array
+    let events = Array.isArray(data) ? data : null;
+    if (!events) {
+      for (const key of fields.unwrap) {
+        if (data[key]) { events = data[key]; break; }
+      }
+      events = events || [];
+    }
+
+    return events.filter(e => e && _pick(e, fields.lat) && _pick(e, fields.lon)).map(e => ({
+      id: `${region}-evt-${_pick(e, fields.id) || Math.random().toString(36).slice(2)}`,
+      region,
+      lat: parseFloat(_pick(e, fields.lat)),
+      lon: parseFloat(_pick(e, fields.lon)),
+      title: _pick(e, fields.title) || 'Incident',
+      description: _pick(e, fields.description) || '',
+      severity: (_pick(e, fields.severity) || '').toLowerCase(),
+      road: _pick(e, fields.road) || '',
+      startTime: _pick(e, fields.startTime) || null,
+      lastUpdated: _pick(e, fields.lastUpdated) || null,
+    }));
+  }
+
+  // Map region codes to their normalizer format key
+  const INCIDENT_FORMAT = {
+    BC: 'bc', WA: 'wa', OR: 'or', MD: 'md', OH: 'oh',
+    // All others use 'ibi' (default in normalizeEvents)
+  };
+
+  async function fetchIncidents(regions) {
+    const regionList = regions ? [...regions] : [];
+    const incidents = [];
+
+    await Promise.allSettled(regionList.map(async (region) => {
+      const entry = INCIDENT_REGISTRY[region];
+      if (!entry) return;
+      try {
+        const raw = await fetchWithRetry(entry.url);
+        incidents.push(...normalizeEvents(raw, region, INCIDENT_FORMAT[region] || 'ibi'));
+      } catch (e) {
+        // Silent fail — no incidents for this region
+      }
+    }));
+
+    return incidents;
+  }
+
+  function hasIncidentRegion(code) {
+    return code in INCIDENT_REGISTRY;
+  }
+
   // California district endpoints and their approximate bounding boxes
   const CA_DISTRICTS = [
     { id: 1, url: 'https://cwwp2.dot.ca.gov/data/d1/cctv/cctvStatusD01.json', lat: [38.5, 42.0], lon: [-124.4, -122.0] },
@@ -162,7 +319,7 @@ const API = (() => {
 
   async function fetchFallback(region) {
     try {
-      const resp = await fetch(`data/cameras-${region.toLowerCase()}.json`);
+      const resp = await fetch(`./data/cameras-${region.toLowerCase()}.json`);
       if (!resp.ok) return null;
       return await resp.json();
     } catch (e) {
@@ -200,7 +357,11 @@ const API = (() => {
   async function refreshRegion(region, endpoint) {
     try {
       const raw = await fetchWithRetry(endpoint);
-      setCachedData(region, raw);
+      // Only overwrite cache if API returned actual data
+      const normalizer = getNormalizer(region);
+      if (normalizer(raw).length > 0) {
+        setCachedData(region, raw);
+      }
     } catch (e) {
       // Silent fail — stale data remains in cache
     }
@@ -245,17 +406,22 @@ const API = (() => {
     // No cache at all — must fetch
     try {
       const raw = await fetchWithRetry(endpoint);
-      setCachedData(region, raw);
-      return { data: normalizer(raw), fromCache: false };
-    } catch (e) {
-      console.warn(`${region} API failed, using fallback:`, e.message);
-      const fallback = await fetchFallback(region);
-      if (fallback) {
-        setCachedData(region, fallback);
-        return { data: normalizer(fallback), fromCache: true };
+      const normalized = normalizer(raw);
+      if (normalized.length > 0) {
+        setCachedData(region, raw);
+        return { data: normalized, fromCache: false };
       }
-      return { data: [], fromCache: true, error: e.message };
+      // API returned empty data — fall through to fallback
+      console.warn(`${region} API returned empty data, trying fallback`);
+    } catch (e) {
+      console.warn(`${region} API failed, trying fallback:`, e.message);
     }
+    const fallback = await fetchFallback(region);
+    if (fallback) {
+      setCachedData(region, fallback);
+      return { data: normalizer(fallback), fromCache: true };
+    }
+    return { data: [], fromCache: true, error: 'All attempts failed' };
   }
 
   // Store route geometry for California district optimization
@@ -311,11 +477,17 @@ const API = (() => {
     // No cache — try direct then proxy
     const raw = await tryUrlsTwoPhase(urls);
     if (raw) {
-      setCachedData(region, raw);
-      return { data: normalizer(raw), fromCache: false };
+      const normalized = normalizer(raw);
+      if (normalized.length > 0) {
+        setCachedData(region, raw);
+        return { data: normalized, fromCache: false };
+      }
+      // API returned empty data — fall through to bundled fallback
+      console.warn(`${region} API returned empty data, trying fallback`);
+    } else {
+      console.warn(`${region} all API URLs failed, trying fallback`);
     }
-    // All URLs failed — try fallback file
-    console.warn(`${region} all API URLs failed, using fallback`);
+    // All URLs failed or returned empty — try fallback file
     const fallback = await fetchFallback(region);
     if (fallback) {
       setCachedData(region, fallback);
@@ -727,6 +899,8 @@ const API = (() => {
     fetchGeocodeFallback,
     reverseGeocode,
     setRouteGeometry,
+    fetchIncidents,
+    hasIncidentRegion,
     CAMERA_REGISTRY,
   };
 })();

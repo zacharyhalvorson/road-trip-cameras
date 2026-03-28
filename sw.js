@@ -2,7 +2,7 @@
    sw.js — Service Worker with tiered caching strategies
    ============================================================= */
 
-const CACHE_NAME = 'tripcams-v28';
+const CACHE_NAME = 'tripcams-v30';
 const STATIC_ASSETS = [
   './',
   'index.html',
@@ -256,3 +256,54 @@ async function trimCache(cacheName, maxItems) {
     }
   }
 }
+
+// ── Push Notifications ──────────────────────────────────────
+
+function showIncidentNotification(data) {
+  return self.registration.showNotification(data.title || 'Trip Cams', {
+    body: data.body,
+    icon: 'img/icon-192.png',
+    badge: 'img/icon-192.png',
+    tag: data.tag || 'incident',
+    data: { lat: data.lat, lon: data.lon, zoom: data.zoom || 13 },
+    renotify: true,
+  });
+}
+
+self.addEventListener('push', (event) => {
+  let data = { title: 'Trip Cams', body: 'New incident on your route' };
+  if (event.data) {
+    try { data = event.data.json(); } catch (e) {
+      data.body = event.data.text();
+    }
+  }
+  event.waitUntil(showIncidentNotification(data));
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
+    event.waitUntil(showIncidentNotification(event.data));
+  }
+});
+
+// Handle notification click — navigate to incident location on map
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const { lat, lon, zoom } = event.notification.data || {};
+  const hashParam = (lat && lon) ? `#incident=${lat},${lon},${zoom || 13}` : '';
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      // Focus existing window and navigate
+      for (const client of windowClients) {
+        if (client.url.includes(self.registration.scope)) {
+          client.focus();
+          client.postMessage({ type: 'NAVIGATE_INCIDENT', lat, lon, zoom: zoom || 13 });
+          return;
+        }
+      }
+      // No existing window — open a new one
+      return clients.openWindow('./' + hashParam);
+    })
+  );
+});
