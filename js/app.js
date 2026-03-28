@@ -340,6 +340,9 @@ const App = (() => {
 
     // Online/offline detection
     updateOnlineStatus();
+
+    // Single visibilitychange listener for incident polling (not inside _startIncidentPolling)
+    document.addEventListener('visibilitychange', _onVisibilityChangeForIncidents);
   }
 
   // Extract route setup + camera loading so it can run immediately from cache
@@ -660,6 +663,7 @@ const App = (() => {
     loadCameras();
     updateHash();
     savePrefs();
+    _promptIncidentNotifications();
   }
 
   function swapStops() {
@@ -2437,129 +2441,112 @@ const App = (() => {
   // ── Incident Notifications ──────────────────────────────────
 
   const INCIDENT_POLL_INTERVAL = 3 * 60 * 1000; // 3 minutes
-  // Use same tight corridor as cameras when OSRM geometry is available (1km),
-  // wider fallback (3km) for straight-line 2-waypoint routes
+  const INCIDENT_POLL_THROTTLE = 30 * 1000; // min interval between polls
   const INCIDENT_CORRIDOR_BUFFER_GEOMETRY = 1; // km — OSRM road geometry
   const INCIDENT_CORRIDOR_BUFFER_STRAIGHT = 3; // km — straight-line fallback
   let _incidentPollTimer = null;
-  let _seenIncidentIds = new Set(); // Session-only — no localStorage persistence
+  let _seenIncidentIds = new Set();
   let _notificationsEnabled = false;
-  let _incidentBaselineLoaded = false; // true after first poll seeds the seen set
+  let _incidentBaselineLoaded = false;
+  let _lastPollTime = 0;
+  let _incidentPolling = false; // guard against concurrent polls
+  // Cached per-route: recomputed on route change, reused across polls
+  let _incidentReducedPath = null;
+  let _incidentCorridorBuffer = 0;
+  let _incidentRegions = null; // Set of region codes, null = needs recompute
 
   function _clearSeenIncidents() {
     _seenIncidentIds = new Set();
     _incidentBaselineLoaded = false;
+    _incidentReducedPath = null;
+    _incidentRegions = null;
   }
 
-  // Request notification permission after user interaction (route selection)
-  async function _requestNotificationPermission() {
-    if (!('Notification' in window)) return false;
-    if (Notification.permission === 'granted') return true;
-    if (Notification.permission === 'denied') return false;
-    const result = await Notification.requestPermission();
-    return result === 'granted';
-  }
-
-  // Start polling for incidents along the current route
   function _startIncidentPolling() {
     if (_incidentPollTimer) return;
-
-    // Initial fetch after a short delay (let cameras load first)
     setTimeout(() => _pollIncidents(), 5000);
-
     _incidentPollTimer = setInterval(_pollIncidents, INCIDENT_POLL_INTERVAL);
-
-    // Pause polling when tab is hidden, resume when visible
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') {
-        _pollIncidents();
-      }
-    });
   }
 
-  function _stopIncidentPolling() {
-    if (_incidentPollTimer) {
-      clearInterval(_incidentPollTimer);
-      _incidentPollTimer = null;
+  // Registered once in init, not inside _startIncidentPolling
+  function _onVisibilityChangeForIncidents() {
+    if (document.visibilityState === 'visible' && _notificationsEnabled) {
+      _pollIncidents();
     }
   }
 
   async function _pollIncidents() {
-    if (!_notificationsEnabled) return;
-    if (!fromStop || !toStop) return;
+    if (!_notificationsEnabled || !fromStop || !toStop) return;
+    if (_incidentPolling) return;
+    if (Date.now() - _lastPollTime < INCIDENT_POLL_THROTTLE) return;
 
-    // Determine which regions to check
-    const neededRegions = new Set();
-    if (fromStop?.region && API.INCIDENT_REGISTRY[fromStop.region]) {
-      neededRegions.add(fromStop.region);
-    }
-    if (toStop?.region && API.INCIDENT_REGISTRY[toStop.region]) {
-      neededRegions.add(toStop.region);
-    }
-    // Also add regions from waypoints
-    if (currentWaypoints.length > 0) {
-      for (const wp of currentWaypoints) {
-        if (wp.region && API.INCIDENT_REGISTRY[wp.region]) neededRegions.add(wp.region);
-      }
-    }
-    // If we have OSRM geometry, detect regions from it
-    if (currentRouteGeometry && currentRouteGeometry.length > 0) {
-      try {
-        const geoRegions = await API.getRegionsForRoute(currentRouteGeometry);
-        for (const r of geoRegions) {
-          if (API.INCIDENT_REGISTRY[r]) neededRegions.add(r);
-        }
-      } catch (e) { /* ignore */ }
-    }
-
-    if (neededRegions.size === 0) return;
+    _incidentPolling = true;
+    _lastPollTime = Date.now();
 
     try {
-      const incidents = await API.fetchIncidents(neededRegions);
+      // Compute regions once per route, cache for subsequent polls
+      if (!_incidentRegions) {
+        _incidentRegions = new Set();
+        for (const stop of [fromStop, toStop]) {
+          if (stop?.region && API.hasIncidentRegion(stop.region)) {
+            _incidentRegions.add(stop.region);
+          }
+        }
+        for (const wp of currentWaypoints) {
+          if (wp.region && API.hasIncidentRegion(wp.region)) _incidentRegions.add(wp.region);
+        }
+        if (currentRouteGeometry && currentRouteGeometry.length > 0) {
+          try {
+            const geoRegions = await API.getRegionsForRoute(currentRouteGeometry);
+            for (const r of geoRegions) {
+              if (API.hasIncidentRegion(r)) _incidentRegions.add(r);
+            }
+          } catch (e) { /* ignore */ }
+        }
+      }
+
+      if (_incidentRegions.size === 0) return;
+
+      const incidents = await API.fetchIncidents(_incidentRegions);
       _processIncidents(incidents);
     } catch (e) {
       // Silent fail
+    } finally {
+      _incidentPolling = false;
     }
   }
 
   function _processIncidents(incidents) {
     if (!incidents || incidents.length === 0) return;
 
-    // Filter to incidents within the route corridor using the same
-    // tight buffer as cameras when OSRM geometry is available
-    const useGeometry = currentRouteGeometry && currentRouteGeometry.length > 0;
-    const filterPath = useGeometry ? currentRouteGeometry : currentWaypoints;
-    if (!filterPath || filterPath.length === 0) return;
-
-    const buffer = useGeometry
-      ? INCIDENT_CORRIDOR_BUFFER_GEOMETRY
-      : INCIDENT_CORRIDOR_BUFFER_STRAIGHT;
-
-    const reducedPath = Cameras.downsamplePolyline(filterPath, 0.5);
+    // Compute corridor filter path once per route, reuse across polls
+    if (!_incidentReducedPath) {
+      const useGeometry = currentRouteGeometry && currentRouteGeometry.length > 0;
+      const filterPath = useGeometry ? currentRouteGeometry : currentWaypoints;
+      if (!filterPath || filterPath.length === 0) return;
+      _incidentReducedPath = Cameras.downsamplePolyline(filterPath, 0.5);
+      _incidentCorridorBuffer = useGeometry
+        ? INCIDENT_CORRIDOR_BUFFER_GEOMETRY
+        : INCIDENT_CORRIDOR_BUFFER_STRAIGHT;
+    }
 
     const corridorIncidents = incidents.filter(inc => {
       if (!inc.lat || !inc.lon || isNaN(inc.lat) || isNaN(inc.lon)) return false;
-      const dist = Cameras.pointToPolylineDistance(inc.lat, inc.lon, reducedPath);
-      return dist <= buffer;
+      return Cameras.pointToPolylineDistance(inc.lat, inc.lon, _incidentReducedPath) <= _incidentCorridorBuffer;
     });
 
     if (!_incidentBaselineLoaded) {
-      // First poll: seed the seen set with all current incidents.
-      // Don't notify — the user doesn't need a dump of every existing incident
-      // when they first open the route. Only notify about *new* ones from now on.
-      for (const inc of corridorIncidents) {
-        _seenIncidentIds.add(inc.id);
-      }
+      // Seed with existing incidents — only notify about new ones from now on
+      for (const inc of corridorIncidents) _seenIncidentIds.add(inc.id);
       _incidentBaselineLoaded = true;
       return;
     }
 
-    // Find genuinely new incidents since last poll
-    const newIncidents = corridorIncidents.filter(inc => !_seenIncidentIds.has(inc.id));
-
-    for (const inc of newIncidents) {
-      _seenIncidentIds.add(inc.id);
-      _showIncidentNotification(inc);
+    for (const inc of corridorIncidents) {
+      if (!_seenIncidentIds.has(inc.id)) {
+        _seenIncidentIds.add(inc.id);
+        _showIncidentNotification(inc);
+      }
     }
   }
 
@@ -2567,13 +2554,9 @@ const App = (() => {
     const reg = await navigator.serviceWorker?.ready;
     if (!reg) return;
 
-    const title = incident.road
-      ? `${incident.title} — ${incident.road}`
-      : incident.title;
-
     reg.active.postMessage({
       type: 'SHOW_NOTIFICATION',
-      title: title,
+      title: incident.road ? `${incident.title} — ${incident.road}` : incident.title,
       body: incident.description || 'Tap to view on map',
       tag: incident.id,
       lat: incident.lat,
@@ -2582,11 +2565,9 @@ const App = (() => {
     });
   }
 
-  // Navigate map to an incident location (called from notification click or hash)
   function _navigateToIncident(lat, lon, zoom) {
     if (!lat || !lon) return;
     TripMap.panTo(parseFloat(lat), parseFloat(lon), parseInt(zoom) || 13);
-    // On mobile, reveal the map
     if (!isWideLayout()) {
       document.body.classList.remove('sheet-expanded');
       dom.sheet.classList.remove('revealed');
@@ -2594,7 +2575,6 @@ const App = (() => {
     }
   }
 
-  // Parse incident location from URL hash: #incident=lat,lon,zoom
   function _handleIncidentHash() {
     const hash = window.location.hash.slice(1);
     if (!hash) return;
@@ -2607,9 +2587,7 @@ const App = (() => {
       const lon = parseFloat(parts[1]);
       const zoom = parts.length >= 3 ? parseInt(parts[2]) : 13;
       if (!isNaN(lat) && !isNaN(lon)) {
-        // Delay slightly to let map initialize
         setTimeout(() => _navigateToIncident(lat, lon, zoom), 500);
-        // Clean the incident param from hash
         params.delete('incident');
         const remaining = params.toString();
         window.location.hash = remaining || '';
@@ -2617,16 +2595,30 @@ const App = (() => {
     }
   }
 
-  // Enable notifications — called after first route loads
-  async function _enableIncidentNotifications() {
+  // Start notifications if already granted, otherwise wait for user gesture.
+  // Browsers suppress/auto-deny permission prompts without a user gesture,
+  // so we only prompt when the user explicitly interacts with the route.
+  function _enableIncidentNotifications() {
     if (_notificationsEnabled) return;
     if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
-
-    // Only ask for permission if user hasn't denied
     if (Notification.permission === 'denied') return;
 
-    const granted = await _requestNotificationPermission();
-    if (granted) {
+    if (Notification.permission === 'granted') {
+      _notificationsEnabled = true;
+      _startIncidentPolling();
+    }
+    // If permission is 'default', defer to _promptIncidentNotifications
+    // which is called from route selection (a user gesture context)
+  }
+
+  // Called from route selection UI (user gesture) to prompt for permission
+  async function _promptIncidentNotifications() {
+    if (_notificationsEnabled) return;
+    if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
+    if (Notification.permission !== 'default') return;
+
+    const result = await Notification.requestPermission();
+    if (result === 'granted') {
       _notificationsEnabled = true;
       _startIncidentPolling();
     }

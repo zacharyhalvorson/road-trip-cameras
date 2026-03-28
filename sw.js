@@ -253,7 +253,17 @@ async function trimCache(cacheName, maxItems) {
 
 // ── Push Notifications ──────────────────────────────────────
 
-// Handle push events (for future server-sent push support)
+function showIncidentNotification(data) {
+  return self.registration.showNotification(data.title || 'Trip Cams', {
+    body: data.body,
+    icon: 'img/icon-192.png',
+    badge: 'img/icon-192.png',
+    tag: data.tag || 'incident',
+    data: { lat: data.lat, lon: data.lon, zoom: data.zoom || 13 },
+    renotify: true,
+  });
+}
+
 self.addEventListener('push', (event) => {
   let data = { title: 'Trip Cams', body: 'New incident on your route' };
   if (event.data) {
@@ -261,30 +271,12 @@ self.addEventListener('push', (event) => {
       data.body = event.data.text();
     }
   }
-  event.waitUntil(
-    self.registration.showNotification(data.title || 'Trip Cams', {
-      body: data.body,
-      icon: 'img/icon-192.png',
-      badge: 'img/icon-192.png',
-      tag: data.tag || 'incident',
-      data: { lat: data.lat, lon: data.lon, zoom: data.zoom },
-      renotify: true,
-    })
-  );
+  event.waitUntil(showIncidentNotification(data));
 });
 
-// Handle messages from the app to show notifications
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
-    const d = event.data;
-    self.registration.showNotification(d.title || 'Trip Cams', {
-      body: d.body,
-      icon: 'img/icon-192.png',
-      badge: 'img/icon-192.png',
-      tag: d.tag || 'incident-' + Date.now(),
-      data: { lat: d.lat, lon: d.lon, zoom: d.zoom || 13 },
-      renotify: true,
-    });
+    showIncidentNotification(event.data);
   }
 });
 

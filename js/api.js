@@ -96,115 +96,107 @@ const API = (() => {
     OH: { url: 'https://publicapi.ohgo.com/api/v1/incidents' },
   };
 
-  // Normalize IBI 511 event response into a flat incident array
-  function normalizeIBIEvents(data, region) {
+  // Field mappings per source format — each maps to the normalized shape:
+  // { id, region, lat, lon, title, description, severity, road, startTime, lastUpdated }
+  // Values are arrays of candidate property names tried in order (first truthy wins).
+  const EVENT_FIELDS = {
+    ibi: {
+      unwrap: ['body', 'events', 'data'],
+      id: ['Id', 'id', 'ID'], lat: ['Latitude', 'latitude'], lon: ['Longitude', 'longitude'],
+      title: ['Headline', 'EventType', 'headline'], description: ['Description', 'EventSubType', 'description'],
+      severity: ['Severity', 'severity'], road: ['RoadwayName', 'Roads', 'roadway'],
+      startTime: ['StartDate', 'StartTime', 'startDate'], lastUpdated: ['LastUpdated', 'lastUpdated'],
+    },
+    bc: {
+      unwrap: ['events'],
+      id: ['id'], lat: ['latitude'], lon: ['longitude'],
+      title: ['headline', 'event_type'], description: ['description'],
+      severity: ['severity'], road: ['route', 'highway'],
+      startTime: ['start'], lastUpdated: ['last_updated'],
+    },
+    wa: {
+      unwrap: [],
+      id: ['AlertID'], lat: ['StartPoint.Latitude'], lon: ['StartPoint.Longitude'],
+      title: ['HeadlineDescription', 'EventCategory'], description: ['ExtendedDescription'],
+      severity: ['Priority'], road: ['Region'],
+      startTime: ['StartTime'], lastUpdated: ['LastUpdatedTime'],
+    },
+    or: {
+      unwrap: ['incidents', 'item'],
+      id: ['id', 'incidentId'], lat: ['lat', 'latitude'], lon: ['lon', 'lng', 'longitude'],
+      title: ['type', 'incidentType'], description: ['description', 'details'],
+      severity: ['severity'], road: ['road', 'route', 'highway'],
+      startTime: ['startTime', 'start'], lastUpdated: ['lastUpdated'],
+    },
+    md: {
+      unwrap: ['events'],
+      id: ['id', 'Id'], lat: ['latitude', 'Latitude'], lon: ['longitude', 'Longitude'],
+      title: ['description', 'Description', 'eventType'], description: ['details', 'Details'],
+      severity: ['severity', 'Severity'], road: ['roadName', 'RoadName', 'road'],
+      startTime: ['startDate', 'StartDate'], lastUpdated: ['lastUpdated', 'LastUpdated'],
+    },
+    oh: {
+      unwrap: ['results', 'incidents'],
+      id: ['id'], lat: ['latitude'], lon: ['longitude'],
+      title: ['category', 'type'], description: ['description'],
+      severity: ['severity'], road: ['roadName', 'route'],
+      startTime: ['startDate'], lastUpdated: ['lastUpdated'],
+    },
+  };
+
+  // Resolve a dotted path like 'StartPoint.Latitude' on an object
+  function _resolveField(obj, path) {
+    const parts = path.split('.');
+    let val = obj;
+    for (const p of parts) {
+      if (val == null) return undefined;
+      val = val[p];
+    }
+    return val;
+  }
+
+  // Pick the first truthy value from candidate field names
+  function _pick(obj, fields) {
+    for (const f of fields) {
+      const v = _resolveField(obj, f);
+      if (v != null && v !== '') return v;
+    }
+    return undefined;
+  }
+
+  function normalizeEvents(data, region, format) {
     if (!data) return [];
-    const events = Array.isArray(data) ? data : (data.body || data.events || data.data || []);
-    return events.filter(e => e && e.Latitude && e.Longitude).map(e => ({
-      id: `${region}-evt-${e.Id || e.id || e.ID || Math.random().toString(36).slice(2)}`,
+    const fields = EVENT_FIELDS[format] || EVENT_FIELDS.ibi;
+
+    // Unwrap: try each candidate wrapper property, fall back to raw array
+    let events = Array.isArray(data) ? data : null;
+    if (!events) {
+      for (const key of fields.unwrap) {
+        if (data[key]) { events = data[key]; break; }
+      }
+      events = events || [];
+    }
+
+    return events.filter(e => e && _pick(e, fields.lat) && _pick(e, fields.lon)).map(e => ({
+      id: `${region}-evt-${_pick(e, fields.id) || Math.random().toString(36).slice(2)}`,
       region,
-      lat: parseFloat(e.Latitude || e.latitude),
-      lon: parseFloat(e.Longitude || e.longitude),
-      title: e.Headline || e.EventType || e.headline || 'Incident',
-      description: e.Description || e.EventSubType || e.description || '',
-      severity: (e.Severity || e.severity || '').toLowerCase(),
-      road: e.RoadwayName || e.Roads || e.roadway || '',
-      startTime: e.StartDate || e.StartTime || e.startDate || null,
-      lastUpdated: e.LastUpdated || e.lastUpdated || null,
+      lat: parseFloat(_pick(e, fields.lat)),
+      lon: parseFloat(_pick(e, fields.lon)),
+      title: _pick(e, fields.title) || 'Incident',
+      description: _pick(e, fields.description) || '',
+      severity: (_pick(e, fields.severity) || '').toLowerCase(),
+      road: _pick(e, fields.road) || '',
+      startTime: _pick(e, fields.startTime) || null,
+      lastUpdated: _pick(e, fields.lastUpdated) || null,
     }));
   }
 
-  // Normalize DriveBC events
-  function normalizeBCEvents(data) {
-    if (!data) return [];
-    const events = Array.isArray(data) ? data : (data.events || []);
-    return events.filter(e => e && e.latitude && e.longitude).map(e => ({
-      id: `BC-evt-${e.id || Math.random().toString(36).slice(2)}`,
-      region: 'BC',
-      lat: parseFloat(e.latitude),
-      lon: parseFloat(e.longitude),
-      title: e.headline || e.event_type || 'Incident',
-      description: e.description || '',
-      severity: (e.severity || '').toLowerCase(),
-      road: e.route || e.highway || '',
-      startTime: e.start || null,
-      lastUpdated: e.last_updated || null,
-    }));
-  }
+  // Map region codes to their normalizer format key
+  const INCIDENT_FORMAT = {
+    BC: 'bc', WA: 'wa', OR: 'or', MD: 'md', OH: 'oh',
+    // All others use 'ibi' (default in normalizeEvents)
+  };
 
-  // Normalize WSDOT alerts
-  function normalizeWAEvents(data) {
-    if (!data) return [];
-    const alerts = Array.isArray(data) ? data : [];
-    return alerts.filter(a => a && a.StartPoint && a.StartPoint.Latitude).map(a => ({
-      id: `WA-evt-${a.AlertID || Math.random().toString(36).slice(2)}`,
-      region: 'WA',
-      lat: parseFloat(a.StartPoint.Latitude),
-      lon: parseFloat(a.StartPoint.Longitude),
-      title: a.HeadlineDescription || a.EventCategory || 'Alert',
-      description: a.ExtendedDescription || '',
-      severity: (a.Priority || '').toLowerCase(),
-      road: a.Region || '',
-      startTime: a.StartTime || null,
-      lastUpdated: a.LastUpdatedTime || null,
-    }));
-  }
-
-  // Normalize Oregon TripCheck incidents
-  function normalizeOREvents(data) {
-    if (!data) return [];
-    const events = Array.isArray(data) ? data : (data.incidents || data.item || []);
-    return events.filter(e => e && (e.lat || e.latitude)).map(e => ({
-      id: `OR-evt-${e.id || e.incidentId || Math.random().toString(36).slice(2)}`,
-      region: 'OR',
-      lat: parseFloat(e.lat || e.latitude),
-      lon: parseFloat(e.lon || e.lng || e.longitude),
-      title: e.type || e.incidentType || 'Incident',
-      description: e.description || e.details || '',
-      severity: (e.severity || '').toLowerCase(),
-      road: e.road || e.route || e.highway || '',
-      startTime: e.startTime || e.start || null,
-      lastUpdated: e.lastUpdated || null,
-    }));
-  }
-
-  // Normalize Maryland CHART events
-  function normalizeMDEvents(data) {
-    if (!data) return [];
-    const events = Array.isArray(data) ? data : (data.events || []);
-    return events.filter(e => e && (e.latitude || e.Latitude)).map(e => ({
-      id: `MD-evt-${e.id || e.Id || Math.random().toString(36).slice(2)}`,
-      region: 'MD',
-      lat: parseFloat(e.latitude || e.Latitude),
-      lon: parseFloat(e.longitude || e.Longitude),
-      title: e.description || e.Description || e.eventType || 'Incident',
-      description: e.details || e.Details || '',
-      severity: (e.severity || e.Severity || '').toLowerCase(),
-      road: e.roadName || e.RoadName || e.road || '',
-      startTime: e.startDate || e.StartDate || null,
-      lastUpdated: e.lastUpdated || e.LastUpdated || null,
-    }));
-  }
-
-  // Normalize Ohio OHGO incidents
-  function normalizeOHEvents(data) {
-    if (!data) return [];
-    const events = Array.isArray(data) ? data : (data.results || data.incidents || []);
-    return events.filter(e => e && e.latitude).map(e => ({
-      id: `OH-evt-${e.id || Math.random().toString(36).slice(2)}`,
-      region: 'OH',
-      lat: parseFloat(e.latitude),
-      lon: parseFloat(e.longitude),
-      title: e.category || e.type || 'Incident',
-      description: e.description || '',
-      severity: (e.severity || '').toLowerCase(),
-      road: e.roadName || e.route || '',
-      startTime: e.startDate || null,
-      lastUpdated: e.lastUpdated || null,
-    }));
-  }
-
-  // Fetch incidents for a set of regions, returns flat array of normalized incidents
   async function fetchIncidents(regions) {
     const regionList = regions ? [...regions] : [];
     const incidents = [];
@@ -214,20 +206,17 @@ const API = (() => {
       if (!entry) return;
       try {
         const raw = await fetchWithRetry(entry.url);
-        let normalized;
-        if (region === 'BC') normalized = normalizeBCEvents(raw);
-        else if (region === 'WA') normalized = normalizeWAEvents(raw);
-        else if (region === 'OR') normalized = normalizeOREvents(raw);
-        else if (region === 'MD') normalized = normalizeMDEvents(raw);
-        else if (region === 'OH') normalized = normalizeOHEvents(raw);
-        else normalized = normalizeIBIEvents(raw, region);
-        incidents.push(...normalized);
+        incidents.push(...normalizeEvents(raw, region, INCIDENT_FORMAT[region] || 'ibi'));
       } catch (e) {
         // Silent fail — no incidents for this region
       }
     }));
 
     return incidents;
+  }
+
+  function hasIncidentRegion(code) {
+    return code in INCIDENT_REGISTRY;
   }
 
   // California district endpoints and their approximate bounding boxes
@@ -896,7 +885,7 @@ const API = (() => {
     reverseGeocode,
     setRouteGeometry,
     fetchIncidents,
+    hasIncidentRegion,
     CAMERA_REGISTRY,
-    INCIDENT_REGISTRY,
   };
 })();
