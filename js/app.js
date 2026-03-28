@@ -398,7 +398,35 @@ const App = (() => {
     // Route inputs
     dom.fromInput.addEventListener('click', () => openDropdown('from'));
     dom.toInput.addEventListener('click', () => openDropdown('to'));
-    dom.swapBtn.addEventListener('click', swapStops);
+    // Swap: short tap swaps, long press opens notifications panel
+    let _swapLongPressTimer = null;
+    let _swapDidLongPress = false;
+
+    dom.swapBtn.addEventListener('pointerdown', (e) => {
+      _swapDidLongPress = false;
+      _swapLongPressTimer = setTimeout(() => {
+        _swapDidLongPress = true;
+        _swapLongPressTimer = null;
+        _openNotificationsPanel();
+      }, 500);
+    });
+    dom.swapBtn.addEventListener('pointerup', () => {
+      if (_swapLongPressTimer) {
+        clearTimeout(_swapLongPressTimer);
+        _swapLongPressTimer = null;
+        if (!_swapDidLongPress) swapStops();
+      }
+    });
+    dom.swapBtn.addEventListener('pointerleave', () => {
+      if (_swapLongPressTimer) {
+        clearTimeout(_swapLongPressTimer);
+        _swapLongPressTimer = null;
+      }
+    });
+    dom.swapBtn.addEventListener('click', (e) => {
+      if (_swapDidLongPress) e.preventDefault();
+    });
+    dom.swapBtn.addEventListener('contextmenu', (e) => e.preventDefault());
 
     // Dropdown
     dom.dropdownOverlay.addEventListener('click', closeDropdown);
@@ -418,7 +446,9 @@ const App = (() => {
     // Keyboard
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
-        if (dom.modalOverlay.classList.contains('active')) closeModal();
+        const notifPanel = document.getElementById('notifPanel');
+        if (notifPanel?.classList.contains('active')) _closeNotificationsPanel();
+        else if (dom.modalOverlay.classList.contains('active')) closeModal();
         else if (dom.dropdown.classList.contains('active')) closeDropdown();
       }
     });
@@ -2444,10 +2474,12 @@ const App = (() => {
   const INCIDENT_POLL_THROTTLE = 30 * 1000; // min interval between polls
   const INCIDENT_CORRIDOR_BUFFER_GEOMETRY = 1; // km — OSRM road geometry
   const INCIDENT_CORRIDOR_BUFFER_STRAIGHT = 3; // km — straight-line fallback
+  const NOTIF_ENABLED_KEY = 'tripcams_notif_enabled';
   let _incidentPollTimer = null;
   let _seenIncidentIds = new Set();
   let _notificationsEnabled = false;
   let _incidentBaselineLoaded = false;
+  let _notificationHistory = []; // recent incidents that triggered notifications
   let _lastPollTime = 0;
   let _incidentPolling = false; // guard against concurrent polls
   // Cached per-route: recomputed on route change, reused across polls
@@ -2551,6 +2583,9 @@ const App = (() => {
   }
 
   async function _showIncidentNotification(incident) {
+    _notificationHistory.unshift({ ...incident, notifiedAt: Date.now() });
+    if (_notificationHistory.length > 50) _notificationHistory.length = 50;
+
     const reg = await navigator.serviceWorker?.ready;
     if (!reg) return;
 
@@ -2595,20 +2630,22 @@ const App = (() => {
     }
   }
 
-  // Start notifications if already granted, otherwise wait for user gesture.
-  // Browsers suppress/auto-deny permission prompts without a user gesture,
-  // so we only prompt when the user explicitly interacts with the route.
+  // Restore saved notification preference and start polling if granted
   function _enableIncidentNotifications() {
     if (_notificationsEnabled) return;
     if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
     if (Notification.permission === 'denied') return;
 
+    // Respect saved preference: if user explicitly turned off, don't auto-start
+    try {
+      const saved = localStorage.getItem(NOTIF_ENABLED_KEY);
+      if (saved === 'false') return;
+    } catch (e) { /* ignore */ }
+
     if (Notification.permission === 'granted') {
       _notificationsEnabled = true;
       _startIncidentPolling();
     }
-    // If permission is 'default', defer to _promptIncidentNotifications
-    // which is called from route selection (a user gesture context)
   }
 
   // Called from route selection UI (user gesture) to prompt for permission
@@ -2617,11 +2654,144 @@ const App = (() => {
     if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
     if (Notification.permission !== 'default') return;
 
+    // Don't prompt if user previously turned off
+    try {
+      if (localStorage.getItem(NOTIF_ENABLED_KEY) === 'false') return;
+    } catch (e) { /* ignore */ }
+
     const result = await Notification.requestPermission();
     if (result === 'granted') {
       _notificationsEnabled = true;
       _startIncidentPolling();
+      try { localStorage.setItem(NOTIF_ENABLED_KEY, 'true'); } catch (e) { /* ignore */ }
     }
+  }
+
+  function _setNotificationsEnabled(enabled) {
+    try { localStorage.setItem(NOTIF_ENABLED_KEY, enabled ? 'true' : 'false'); } catch (e) { /* ignore */ }
+    if (enabled) {
+      if (Notification.permission === 'granted') {
+        _notificationsEnabled = true;
+        _startIncidentPolling();
+      } else if (Notification.permission === 'default') {
+        // Need to request — this is called from a user gesture (toggle click)
+        Notification.requestPermission().then(result => {
+          if (result === 'granted') {
+            _notificationsEnabled = true;
+            _startIncidentPolling();
+          } else {
+            // Permission denied — update toggle to reflect
+            const toggle = document.getElementById('notifToggle');
+            if (toggle) toggle.checked = false;
+          }
+        });
+      }
+    } else {
+      _notificationsEnabled = false;
+      if (_incidentPollTimer) {
+        clearInterval(_incidentPollTimer);
+        _incidentPollTimer = null;
+      }
+    }
+  }
+
+  // ── Notifications Panel ─────────────────────────────────────
+
+  function _openNotificationsPanel() {
+    let panel = document.getElementById('notifPanel');
+    if (!panel) {
+      panel = document.createElement('div');
+      panel.id = 'notifPanel';
+      panel.className = 'notif-panel-overlay';
+      document.body.appendChild(panel);
+    }
+
+    const hasNotifSupport = ('Notification' in window) && ('serviceWorker' in navigator);
+    const permDenied = hasNotifSupport && Notification.permission === 'denied';
+    const isEnabled = _notificationsEnabled;
+
+    const items = _notificationHistory.length > 0
+      ? _notificationHistory.map(inc => {
+          const time = _relativeTime(inc.notifiedAt);
+          const title = inc.road ? `${inc.title} — ${inc.road}` : inc.title;
+          return `<button class="notif-item" data-lat="${inc.lat}" data-lon="${inc.lon}">
+            <div class="notif-item-title">${_esc(title)}</div>
+            ${inc.description ? `<div class="notif-item-desc">${_esc(inc.description)}</div>` : ''}
+            <div class="notif-item-time">${time}</div>
+          </button>`;
+        }).join('')
+      : `<div class="notif-empty">No alerts yet for this route.</div>`;
+
+    panel.innerHTML = `
+      <div class="notif-panel">
+        <div class="notif-panel-header">
+          <h2>Route Alerts</h2>
+          <button class="notif-panel-close" id="notifPanelClose" aria-label="Close">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+              <path d="M18 6L6 18M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+        <div class="notif-toggle-row">
+          <label class="notif-toggle-label" for="notifToggle">
+            <span>Push notifications</span>
+            ${permDenied ? '<span class="notif-denied">Blocked by browser</span>' : ''}
+          </label>
+          <label class="notif-switch">
+            <input type="checkbox" id="notifToggle" ${isEnabled ? 'checked' : ''} ${!hasNotifSupport || permDenied ? 'disabled' : ''}>
+            <span class="notif-switch-slider"></span>
+          </label>
+        </div>
+        <div class="notif-list">${items}</div>
+      </div>
+    `;
+
+    // Animate in
+    requestAnimationFrame(() => panel.classList.add('active'));
+
+    // Event listeners
+    panel.querySelector('#notifPanelClose').addEventListener('click', _closeNotificationsPanel);
+    panel.addEventListener('click', (e) => {
+      if (e.target === panel) _closeNotificationsPanel();
+    });
+
+    const toggle = panel.querySelector('#notifToggle');
+    if (toggle) {
+      toggle.addEventListener('change', () => _setNotificationsEnabled(toggle.checked));
+    }
+
+    // Incident item clicks → navigate to location
+    panel.querySelectorAll('.notif-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const lat = parseFloat(item.dataset.lat);
+        const lon = parseFloat(item.dataset.lon);
+        if (!isNaN(lat) && !isNaN(lon)) {
+          _closeNotificationsPanel();
+          _navigateToIncident(lat, lon, 14);
+        }
+      });
+    });
+  }
+
+  function _closeNotificationsPanel() {
+    const panel = document.getElementById('notifPanel');
+    if (!panel) return;
+    panel.classList.remove('active');
+    panel.addEventListener('transitionend', () => panel.remove(), { once: true });
+  }
+
+  function _relativeTime(ts) {
+    const diff = Date.now() - ts;
+    if (diff < 60000) return 'just now';
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+    return `${Math.floor(diff / 86400000)}d ago`;
+  }
+
+  function _esc(str) {
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
   }
 
   // ── Boot ─────────────────────────────────────────────────────
