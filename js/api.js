@@ -319,7 +319,7 @@ const API = (() => {
 
   async function fetchFallback(region) {
     try {
-      const resp = await fetch(`data/cameras-${region.toLowerCase()}.json`);
+      const resp = await fetch(`./data/cameras-${region.toLowerCase()}.json`);
       if (!resp.ok) return null;
       return await resp.json();
     } catch (e) {
