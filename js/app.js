@@ -2630,17 +2630,14 @@ const App = (() => {
     }
   }
 
-  // Restore saved notification preference and start polling if granted
+  // Off by default — only auto-start if user previously opted in
   function _enableIncidentNotifications() {
     if (_notificationsEnabled) return;
     if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
-    if (Notification.permission === 'denied') return;
 
-    // Respect saved preference: if user explicitly turned off, don't auto-start
     try {
-      const saved = localStorage.getItem(NOTIF_ENABLED_KEY);
-      if (saved === 'false') return;
-    } catch (e) { /* ignore */ }
+      if (localStorage.getItem(NOTIF_ENABLED_KEY) !== 'true') return;
+    } catch (e) { return; }
 
     if (Notification.permission === 'granted') {
       _notificationsEnabled = true;
@@ -2648,51 +2645,50 @@ const App = (() => {
     }
   }
 
-  // Called from route selection UI (user gesture) to prompt for permission
-  async function _promptIncidentNotifications() {
-    if (_notificationsEnabled) return;
-    if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
-    if (Notification.permission !== 'default') return;
-
-    // Don't prompt if user previously turned off
-    try {
-      if (localStorage.getItem(NOTIF_ENABLED_KEY) === 'false') return;
-    } catch (e) { /* ignore */ }
-
-    const result = await Notification.requestPermission();
-    if (result === 'granted') {
-      _notificationsEnabled = true;
-      _startIncidentPolling();
-      try { localStorage.setItem(NOTIF_ENABLED_KEY, 'true'); } catch (e) { /* ignore */ }
-    }
-  }
+  // No longer auto-prompt from route selection — user opts in via the toggle
+  function _promptIncidentNotifications() {}
 
   function _setNotificationsEnabled(enabled) {
     try { localStorage.setItem(NOTIF_ENABLED_KEY, enabled ? 'true' : 'false'); } catch (e) { /* ignore */ }
-    if (enabled) {
-      if (Notification.permission === 'granted') {
-        _notificationsEnabled = true;
-        _startIncidentPolling();
-      } else if (Notification.permission === 'default') {
-        // Need to request — this is called from a user gesture (toggle click)
-        Notification.requestPermission().then(result => {
-          if (result === 'granted') {
-            _notificationsEnabled = true;
-            _startIncidentPolling();
-          } else {
-            // Permission denied — update toggle to reflect
-            const toggle = document.getElementById('notifToggle');
-            if (toggle) toggle.checked = false;
-          }
-        });
-      }
-    } else {
+    const toggle = document.getElementById('notifToggle');
+
+    if (!enabled) {
       _notificationsEnabled = false;
       if (_incidentPollTimer) {
         clearInterval(_incidentPollTimer);
         _incidentPollTimer = null;
       }
+      return;
     }
+
+    // Enabling: check permission state
+    if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+      if (toggle) toggle.checked = false;
+      return;
+    }
+
+    if (Notification.permission === 'granted') {
+      _notificationsEnabled = true;
+      _startIncidentPolling();
+      return;
+    }
+
+    if (Notification.permission === 'denied') {
+      if (toggle) toggle.checked = false;
+      return;
+    }
+
+    // Permission is 'default' — request it (this is from a user gesture)
+    Notification.requestPermission().then(result => {
+      if (result === 'granted') {
+        _notificationsEnabled = true;
+        _startIncidentPolling();
+      } else {
+        // Denied or dismissed — revert toggle
+        if (toggle) toggle.checked = false;
+        try { localStorage.setItem(NOTIF_ENABLED_KEY, 'false'); } catch (e) { /* ignore */ }
+      }
+    });
   }
 
   // ── Notifications Panel ─────────────────────────────────────
