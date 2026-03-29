@@ -8,8 +8,9 @@ import UIKit
 
 @MainActor
 class CarPlayMapViewController: UIViewController, MKMapViewDelegate {
-    let mapView = MKMapView()
+    private let mapView = MKMapView()
     private var routeOverlay: MKPolyline?
+    private static var markerImageCache: [String: UIImage] = [:]
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -47,24 +48,21 @@ class CarPlayMapViewController: UIViewController, MKMapViewDelegate {
         }
     }
 
-    // MARK: - Fit to Route
+    // MARK: - Map Navigation
 
     func fitToRoute(geometry: [Waypoint], animated: Bool = true) {
-        guard !geometry.isEmpty else { return }
-        let lats = geometry.map(\.lat)
-        let lons = geometry.map(\.lon)
-        guard let minLat = lats.min(), let maxLat = lats.max(),
-              let minLon = lons.min(), let maxLon = lons.max() else { return }
+        guard let region = geometry.boundingRegion() else { return }
+        mapView.setRegion(region, animated: animated)
+    }
 
-        let center = CLLocationCoordinate2D(
-            latitude: (minLat + maxLat) / 2,
-            longitude: (minLon + maxLon) / 2
+    func zoomTo(coordinate: CLLocationCoordinate2D, spanDelta: Double) {
+        mapView.setRegion(
+            MKCoordinateRegion(
+                center: coordinate,
+                span: MKCoordinateSpan(latitudeDelta: spanDelta, longitudeDelta: spanDelta)
+            ),
+            animated: true
         )
-        let span = MKCoordinateSpan(
-            latitudeDelta: max((maxLat - minLat) * 1.3, 0.05),
-            longitudeDelta: max((maxLon - minLon) * 1.3, 0.05)
-        )
-        mapView.setRegion(MKCoordinateRegion(center: center, span: span), animated: animated)
     }
 
     // MARK: - MKMapViewDelegate
@@ -72,7 +70,7 @@ class CarPlayMapViewController: UIViewController, MKMapViewDelegate {
     func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
         if let polyline = overlay as? MKPolyline {
             let renderer = MKPolylineRenderer(polyline: polyline)
-            renderer.strokeColor = UIColor(red: 0.176, green: 0.722, blue: 0.294, alpha: 1)
+            renderer.strokeColor = .tripGreen
             renderer.lineWidth = 4
             return renderer
         }
@@ -88,8 +86,7 @@ class CarPlayMapViewController: UIViewController, MKMapViewDelegate {
 
         let count = cameraAnnotation.cluster.cameras.count
         let size: CGFloat = count > 1 ? 32 : 28
-        let image = Self.markerImage(count: count, size: size)
-        view.image = image
+        view.image = Self.cachedMarkerImage(count: count, size: size)
         view.centerOffset = CGPoint(x: 0, y: -size / 2)
         view.canShowCallout = false
 
@@ -98,24 +95,28 @@ class CarPlayMapViewController: UIViewController, MKMapViewDelegate {
 
     // MARK: - Marker Rendering
 
-    private static func markerImage(count: Int, size: CGFloat) -> UIImage {
+    private static func cachedMarkerImage(count: Int, size: CGFloat) -> UIImage {
+        let key = "\(count)-\(Int(size))"
+        if let cached = markerImageCache[key] { return cached }
+        let image = renderMarkerImage(count: count, size: size)
+        markerImageCache[key] = image
+        return image
+    }
+
+    private static func renderMarkerImage(count: Int, size: CGFloat) -> UIImage {
         let totalHeight = size + 6
         let renderer = UIGraphicsImageRenderer(size: CGSize(width: size, height: totalHeight))
         return renderer.image { ctx in
-            let green = UIColor(red: 0.176, green: 0.722, blue: 0.294, alpha: 1)
-            let fillColor = count > 1 ? green : .white
-            let iconColor = count > 1 ? UIColor.white : green
+            let fillColor: UIColor = count > 1 ? .tripGreen : .white
+            let iconColor: UIColor = count > 1 ? .white : .tripGreen
 
-            // Circle
             let circleRect = CGRect(x: 0, y: 0, width: size, height: size)
 
-            // Shadow
             ctx.cgContext.setShadow(offset: CGSize(width: 0, height: 1), blur: 2, color: UIColor.black.withAlphaComponent(0.25).cgColor)
             fillColor.setFill()
             ctx.cgContext.fillEllipse(in: circleRect)
             ctx.cgContext.setShadow(offset: .zero, blur: 0)
 
-            // Triangle pointer
             let triPath = UIBezierPath()
             triPath.move(to: CGPoint(x: size / 2 - 5, y: size - 2))
             triPath.addLine(to: CGPoint(x: size / 2, y: totalHeight))
@@ -125,30 +126,17 @@ class CarPlayMapViewController: UIViewController, MKMapViewDelegate {
             triPath.fill()
 
             if count > 1 {
-                // Count label
                 let text = "\(count)" as NSString
                 let font = UIFont.boldSystemFont(ofSize: size * 0.4)
-                let attrs: [NSAttributedString.Key: Any] = [
-                    .font: font,
-                    .foregroundColor: iconColor
-                ]
+                let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: iconColor]
                 let textSize = text.size(withAttributes: attrs)
-                let textOrigin = CGPoint(
-                    x: (size - textSize.width) / 2,
-                    y: (size - textSize.height) / 2
-                )
-                text.draw(at: textOrigin, withAttributes: attrs)
+                text.draw(at: CGPoint(x: (size - textSize.width) / 2, y: (size - textSize.height) / 2), withAttributes: attrs)
             } else {
-                // Camera icon (SF Symbol rendered as image)
                 let config = UIImage.SymbolConfiguration(pointSize: size * 0.38, weight: .medium)
                 if let symbol = UIImage(systemName: "camera.fill", withConfiguration: config) {
                     let symbolSize = symbol.size
-                    let origin = CGPoint(
-                        x: (size - symbolSize.width) / 2,
-                        y: (size - symbolSize.height) / 2
-                    )
                     let tinted = symbol.withTintColor(iconColor, renderingMode: .alwaysOriginal)
-                    tinted.draw(at: origin)
+                    tinted.draw(at: CGPoint(x: (size - symbolSize.width) / 2, y: (size - symbolSize.height) / 2))
                 }
             }
         }
@@ -165,16 +153,30 @@ class CarPlayCameraAnnotation: NSObject, MKAnnotation {
         super.init()
     }
 
-    var coordinate: CLLocationCoordinate2D {
-        cluster.coordinate
-    }
+    var coordinate: CLLocationCoordinate2D { cluster.coordinate }
+    var title: String? { cluster.name }
+    var subtitle: String? { cluster.summary }
+}
 
-    var title: String? {
-        cluster.name
-    }
+// MARK: - Waypoint Bounding Region
 
-    var subtitle: String? {
-        let count = cluster.cameras.count
-        return count > 1 ? "\(count) cameras" : cluster.primaryCamera.highway
+extension Array where Element == Waypoint {
+    func boundingRegion(padding: Double = 1.3) -> MKCoordinateRegion? {
+        guard !isEmpty else { return nil }
+        var minLat = self[0].lat, maxLat = self[0].lat
+        var minLon = self[0].lon, maxLon = self[0].lon
+        for wp in self.dropFirst() {
+            if wp.lat < minLat { minLat = wp.lat }
+            if wp.lat > maxLat { maxLat = wp.lat }
+            if wp.lon < minLon { minLon = wp.lon }
+            if wp.lon > maxLon { maxLon = wp.lon }
+        }
+        return MKCoordinateRegion(
+            center: CLLocationCoordinate2D(latitude: (minLat + maxLat) / 2, longitude: (minLon + maxLon) / 2),
+            span: MKCoordinateSpan(
+                latitudeDelta: max((maxLat - minLat) * padding, 0.05),
+                longitudeDelta: max((maxLon - minLon) * padding, 0.05)
+            )
+        )
     }
 }

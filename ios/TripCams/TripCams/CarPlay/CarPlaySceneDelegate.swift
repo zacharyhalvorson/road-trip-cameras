@@ -4,6 +4,7 @@
 //
 
 import CarPlay
+import Combine
 import MapKit
 import UIKit
 
@@ -14,13 +15,12 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     private var mapViewController: CarPlayMapViewController?
     private var mapTemplate: CPMapTemplate?
     private var viewModel: TripViewModel? { TripViewModel.shared }
-    private var refreshTask: Task<Void, Never>?
+    private var cancellables = Set<AnyCancellable>()
 
     func templateApplicationScene(_ templateApplicationScene: CPTemplateApplicationScene,
                                    didConnect interfaceController: CPInterfaceController) {
         self.interfaceController = interfaceController
 
-        // Set up map view controller on the CarPlay window
         let mapVC = CarPlayMapViewController()
         self.mapViewController = mapVC
 
@@ -29,17 +29,14 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
         window.makeKeyAndVisible()
         self.carWindow = window
 
-        // Create map template with bar buttons
         let mapTemplate = CPMapTemplate()
         self.mapTemplate = mapTemplate
 
-        // Leading: camera list button
         let cameraButton = CPBarButton(image: UIImage(systemName: "camera.fill")!) { [weak self] _ in
             self?.showCameraList()
         }
         mapTemplate.leadingNavigationBarButtons = [cameraButton]
 
-        // Trailing: route selection button
         let routeButton = CPBarButton(image: UIImage(systemName: "point.topleft.down.to.point.bottomright.curvepath")!) { [weak self] _ in
             self?.showRouteSelection()
         }
@@ -47,8 +44,7 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
 
         interfaceController.setRootTemplate(mapTemplate, animated: true, completion: nil)
 
-        // Sync current state to the map
-        syncMapState()
+        observeViewModel()
     }
 
     func templateApplicationScene(_ templateApplicationScene: CPTemplateApplicationScene,
@@ -57,52 +53,29 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
         self.carWindow = nil
         self.mapViewController = nil
         self.mapTemplate = nil
-        refreshTask?.cancel()
-        refreshTask = nil
+        cancellables.removeAll()
     }
 
-    // MARK: - State Sync
+    // MARK: - State Observation
 
-    private func syncMapState() {
-        guard let viewModel = viewModel, let mapVC = mapViewController else { return }
+    private func observeViewModel() {
+        guard let viewModel = viewModel else { return }
 
-        // Initial sync
-        if !viewModel.routeGeometry.isEmpty {
-            mapVC.updateRoute(geometry: viewModel.routeGeometry)
-            mapVC.fitToRoute(geometry: viewModel.routeGeometry, animated: false)
-        }
-        if !viewModel.clusters.isEmpty {
-            mapVC.updateMarkers(clusters: viewModel.clusters)
-        }
-
-        // Periodic refresh to pick up view model changes from the phone app
-        refreshTask = Task { [weak self] in
-            var lastGeometryCount = viewModel.routeGeometry.count
-            var lastClusterCount = viewModel.clusters.count
-            var lastFirstWaypoint = viewModel.routeGeometry.first
-
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(2))
-                guard !Task.isCancelled else { break }
-                guard let self = self, let vm = self.viewModel, let mvc = self.mapViewController else { break }
-
-                let geoCount = vm.routeGeometry.count
-                let cCount = vm.clusters.count
-                let firstWaypoint = vm.routeGeometry.first
-
-                if geoCount != lastGeometryCount || firstWaypoint != lastFirstWaypoint {
-                    lastGeometryCount = geoCount
-                    lastFirstWaypoint = firstWaypoint
-                    mvc.updateRoute(geometry: vm.routeGeometry)
-                    mvc.fitToRoute(geometry: vm.routeGeometry)
-                }
-
-                if cCount != lastClusterCount {
-                    lastClusterCount = cCount
-                    mvc.updateMarkers(clusters: vm.clusters)
-                }
+        viewModel.$routeGeometry
+            .receive(on: RunLoop.main)
+            .sink { [weak self] geometry in
+                guard let mvc = self?.mapViewController else { return }
+                mvc.updateRoute(geometry: geometry)
+                mvc.fitToRoute(geometry: geometry)
             }
-        }
+            .store(in: &cancellables)
+
+        viewModel.$clusters
+            .receive(on: RunLoop.main)
+            .sink { [weak self] clusters in
+                self?.mapViewController?.updateMarkers(clusters: clusters)
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Camera List
@@ -118,9 +91,7 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
         }
 
         let items: [CPListItem] = viewModel.clusters.prefix(12).map { cluster in
-            let count = cluster.cameras.count
-            let detail = count > 1 ? "\(count) cameras" : cluster.primaryCamera.highway
-            let item = CPListItem(text: cluster.name, detailText: detail)
+            let item = CPListItem(text: cluster.name, detailText: cluster.summary)
             item.handler = { [weak self] _, completion in
                 self?.showClusterDetail(cluster: cluster)
                 completion()
@@ -135,14 +106,7 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     // MARK: - Cluster Detail
 
     private func showClusterDetail(cluster: CameraCluster) {
-        // Zoom map to cluster location
-        mapViewController?.mapView.setRegion(
-            MKCoordinateRegion(
-                center: cluster.coordinate,
-                span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)
-            ),
-            animated: true
-        )
+        mapViewController?.zoomTo(coordinate: cluster.coordinate, spanDelta: 0.02)
 
         if cluster.cameras.count == 1 {
             showCameraDetail(camera: cluster.primaryCamera)
@@ -165,14 +129,7 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     // MARK: - Camera Detail
 
     private func showCameraDetail(camera: Camera) {
-        // Zoom map to camera location
-        mapViewController?.mapView.setRegion(
-            MKCoordinateRegion(
-                center: camera.coordinate,
-                span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
-            ),
-            animated: true
-        )
+        mapViewController?.zoomTo(coordinate: camera.coordinate, spanDelta: 0.01)
 
         var items: [CPInformationItem] = [
             CPInformationItem(title: "Highway", detail: camera.highway),
@@ -221,13 +178,6 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
                 Task { @MainActor in
                     viewModel.selectRoute(routeId: routeId, from: stop, to: lastStop)
                     await viewModel.loadCamerasForRoute()
-
-                    // Update map with new route and markers
-                    self.mapViewController?.updateRoute(geometry: viewModel.routeGeometry)
-                    self.mapViewController?.updateMarkers(clusters: viewModel.clusters)
-                    self.mapViewController?.fitToRoute(geometry: viewModel.routeGeometry)
-
-                    // Pop back to map
                     self.interfaceController?.popToRootTemplate(animated: true, completion: nil)
                 }
                 completion()
