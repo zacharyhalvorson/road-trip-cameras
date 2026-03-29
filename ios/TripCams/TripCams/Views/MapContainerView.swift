@@ -17,13 +17,12 @@ struct MapContainerView: View {
         ZStack(alignment: .trailing) {
             mapContent
 
-            // Position controls in the vertical middle-right area, above the sheet
+            // Position controls above the bottom sheet peek area
             VStack {
                 Spacer()
                 overlayControls
-                Spacer()
-                    .frame(height: 220)
             }
+            .padding(.bottom, 192)
         }
         .onChange(of: viewModel.routeGeometry) {
             fitMapToRoute()
@@ -47,7 +46,7 @@ struct MapContainerView: View {
                     Annotation(
                         camera.name,
                         coordinate: camera.coordinate,
-                        anchor: .bottom
+                        anchor: .center
                     ) {
                         cameraMarker()
                     }
@@ -56,7 +55,7 @@ struct MapContainerView: View {
                     Annotation(
                         "\(cluster.cameras.count) cameras",
                         coordinate: cluster.coordinate,
-                        anchor: .bottom
+                        anchor: .center
                     ) {
                         clusterMarker(cluster: cluster)
                     }
@@ -92,51 +91,33 @@ struct MapContainerView: View {
     // MARK: - Camera Marker
 
     private func cameraMarker() -> some View {
-        VStack(spacing: 0) {
-            ZStack {
+        Circle()
+            .fill(Color.tripGreen)
+            .frame(width: 10, height: 10)
+            .overlay(
                 Circle()
-                    .fill(.white)
-                    .frame(width: 32, height: 32)
-                    .shadow(color: .black.opacity(0.2), radius: 2, y: 1)
-
-                Image(systemName: "camera.fill")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Color.tripGreen)
-            }
-
-            Triangle()
-                .fill(.white)
-                .frame(width: 10, height: 6)
-                .shadow(color: .black.opacity(0.15), radius: 1, y: 1)
-        }
+                    .stroke(.white, lineWidth: 2)
+            )
+            .shadow(color: .black.opacity(0.2), radius: 1, y: 1)
     }
 
     // MARK: - Cluster Marker
 
     private func clusterMarker(cluster: CameraCluster) -> some View {
-        VStack(spacing: 0) {
-            ZStack {
+        Circle()
+            .fill(Color.tripGreen)
+            .frame(width: 10, height: 10)
+            .overlay(
                 Circle()
-                    .fill(Color.tripGreen)
-                    .frame(width: 36, height: 36)
-                    .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
-
-                Text("\(cluster.cameras.count)")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(.white)
-            }
-
-            Triangle()
-                .fill(Color.tripGreen)
-                .frame(width: 10, height: 6)
-                .shadow(color: .black.opacity(0.15), radius: 1, y: 1)
-        }
+                    .stroke(.white, lineWidth: 2)
+            )
+            .shadow(color: .black.opacity(0.2), radius: 1, y: 1)
     }
 
     // MARK: - Overlay Controls
 
     private var overlayControls: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 4) {
             Button {
                 locationService.requestPermission()
                 locationService.startUpdating()
@@ -153,9 +134,9 @@ struct MapContainerView: View {
             } label: {
                 Image(systemName: "location.fill")
                     .font(.system(size: 16))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(.black)
                     .frame(width: 40, height: 40)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                     .shadow(color: .black.opacity(0.1), radius: 2, y: 1)
             }
 
@@ -165,9 +146,9 @@ struct MapContainerView: View {
                 } label: {
                     Image(systemName: "arrow.up.left.and.arrow.down.right")
                         .font(.system(size: 16))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(.black)
                         .frame(width: 40, height: 40)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                         .shadow(color: .black.opacity(0.1), radius: 2, y: 1)
                 }
             }
@@ -208,19 +189,6 @@ struct MapContainerView: View {
                 )
             )
         }
-    }
-}
-
-// MARK: - Triangle Shape (for marker pins)
-
-struct Triangle: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.midX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
-        path.closeSubpath()
-        return path
     }
 }
 

@@ -25,6 +25,7 @@ struct ContentView: View {
                 // Layer 2: Route picker overlay at top
                 VStack {
                     RoutePickerOverlay()
+                        .padding(.top, geo.safeAreaInsets.top)
                     Spacer()
                 }
 
