@@ -91,11 +91,13 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
         }
 
         let items: [CPListItem] = viewModel.clusters.prefix(12).map { cluster in
-            let item = CPListItem(text: cluster.name, detailText: cluster.summary)
+            let camera = cluster.primaryCamera
+            let item = CPListItem(text: cluster.name, detailText: cluster.summary, image: Self.placeholder)
             item.handler = { [weak self] _, completion in
                 self?.showClusterDetail(cluster: cluster)
                 completion()
             }
+            loadThumbnail(for: camera, into: item)
             return item
         }
 
@@ -114,11 +116,12 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
         }
 
         let items: [CPListItem] = cluster.cameras.map { camera in
-            let item = CPListItem(text: camera.name, detailText: "\(camera.highway) \(camera.direction)")
+            let item = CPListItem(text: camera.name, detailText: "\(camera.highway) \(camera.direction)", image: Self.placeholder)
             item.handler = { [weak self] _, completion in
                 self?.showCameraDetail(camera: camera)
                 completion()
             }
+            loadThumbnail(for: camera, into: item)
             return item
         }
 
@@ -188,5 +191,61 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
         let section = CPListSection(items: items)
         let template = CPListTemplate(title: route.name, sections: [section])
         interfaceController?.pushTemplate(template, animated: true, completion: nil)
+    }
+
+    // MARK: - Image Loading
+
+    private static let thumbnailSize = CGSize(width: 80, height: 45)
+
+    private static let placeholder: UIImage = {
+        let renderer = UIGraphicsImageRenderer(size: thumbnailSize)
+        return renderer.image { ctx in
+            UIColor.tertiarySystemFill.setFill()
+            ctx.fill(CGRect(origin: .zero, size: thumbnailSize))
+        }
+    }()
+
+    private func loadThumbnail(for camera: Camera, into item: CPListItem) {
+        let urlString = Self.cleanUrl(camera.thumbnailUrl ?? camera.imageUrl)
+        guard let url = URL(string: urlString) else { return }
+
+        Task {
+            guard let image = await Self.fetchThumbnail(from: url) else { return }
+            item.setImage(image)
+        }
+    }
+
+    private static func fetchThumbnail(from url: URL) async -> UIImage? {
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            guard let full = UIImage(data: data) else { return nil }
+            return resizeToFill(full, size: thumbnailSize)
+        } catch {
+            return nil
+        }
+    }
+
+    private static func resizeToFill(_ image: UIImage, size: CGSize) -> UIImage {
+        let widthRatio = size.width / image.size.width
+        let heightRatio = size.height / image.size.height
+        let scale = max(widthRatio, heightRatio)
+        let scaledSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let origin = CGPoint(x: (size.width - scaledSize.width) / 2, y: (size.height - scaledSize.height) / 2)
+
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: origin, size: scaledSize))
+        }
+    }
+
+    private static func cleanUrl(_ urlString: String) -> String {
+        var url = urlString
+        if url.contains("corsproxy.io/?") {
+            url = url.components(separatedBy: "corsproxy.io/?").last ?? url
+        }
+        if url.contains("%3A") || url.contains("%2F") {
+            url = url.removingPercentEncoding ?? url
+        }
+        return url
     }
 }
