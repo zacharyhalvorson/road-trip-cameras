@@ -90,6 +90,8 @@ html {
   -webkit-tap-highlight-color: transparent;
   scroll-behavior: smooth;
   touch-action: pan-x pan-y;
+  height: 100%;
+  background: var(--navy);
 }
 
 body {
