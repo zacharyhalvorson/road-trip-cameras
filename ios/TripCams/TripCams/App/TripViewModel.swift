@@ -165,16 +165,4 @@ class TripViewModel: ObservableObject {
         }
     }
 
-    var allStops: [RouteStop] {
-        var seen = Set<String>()
-        var result: [RouteStop] = []
-        for route in routes.values.sorted(by: { $0.name < $1.name }) {
-            for stop in route.stops {
-                if seen.insert(stop.id).inserted {
-                    result.append(stop)
-                }
-            }
-        }
-        return result
-    }
 }

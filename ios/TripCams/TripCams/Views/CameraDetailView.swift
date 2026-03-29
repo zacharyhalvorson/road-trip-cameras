@@ -19,14 +19,12 @@ struct CameraDetailView: View {
                 .onTapGesture(perform: onDismiss)
 
             // Modal card — animates from card position via matchedGeometryEffect
-            VStack(spacing: 0) {
-                ZStack(alignment: .top) {
-                    CameraImageView(urlString: camera.imageUrl)
-                        .frame(maxWidth: .infinity)
-                        .aspectRatio(16.0 / 9.0, contentMode: .fit)
+            ZStack(alignment: .top) {
+                CameraImageView(urlString: camera.imageUrl)
+                    .frame(maxWidth: .infinity)
+                    .aspectRatio(16.0 / 9.0, contentMode: .fit)
 
-                    headerOverlay
-                }
+                headerOverlay
             }
             .clipShape(RoundedRectangle(cornerRadius: 16))
             .shadow(color: .black.opacity(0.4), radius: 20, y: 8)
