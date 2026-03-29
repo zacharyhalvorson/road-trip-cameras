@@ -5,6 +5,11 @@
 
 import SwiftUI
 
+extension Animation {
+    static let sheetSpring = Animation.spring(response: 0.5, dampingFraction: 0.85)
+    static let heroSpring = Animation.spring(response: 0.45, dampingFraction: 0.85)
+}
+
 extension Color {
     static let tripGreen = Color(red: 0.176, green: 0.722, blue: 0.294)
 

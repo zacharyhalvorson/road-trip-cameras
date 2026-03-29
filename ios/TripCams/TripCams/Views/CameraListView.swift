@@ -4,7 +4,6 @@
 
 import SwiftUI
 
-// Tracks scroll content offset relative to the scroll view
 struct ScrollOffsetPreferenceKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
@@ -23,7 +22,6 @@ struct CameraListView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 10) {
-                    // Invisible anchor for offset tracking and scroll-to-top
                     Color.clear
                         .frame(height: 0)
                         .id("top")
@@ -50,7 +48,7 @@ struct CameraListView: View {
                                         .applyMatchedGeometry(id: camera.id, namespace: namespace)
                                         .contentShape(Rectangle())
                                         .onTapGesture {
-                                            withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                                            withAnimation(.heroSpring) {
                                                 viewModel.selectedCamera = camera
                                             }
                                         }
@@ -70,7 +68,9 @@ struct CameraListView: View {
             }
             .coordinateSpace(name: "cameraScroll")
             .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
-                scrollOffset = value
+                if isSheetExpanded {
+                    scrollOffset = value
+                }
             }
             .scrollDisabled(!isSheetExpanded)
             .onChange(of: scrollToCameraId) { _, targetId in

@@ -40,7 +40,6 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     dragHandle
 
-                    // Pull-to-refresh indicator (collapsed state)
                     if !isSheetExpanded && (pullOffset > 0 || isRefreshing) {
                         pullToRefreshIndicator
                     }
@@ -53,7 +52,6 @@ struct ContentView: View {
                             isSheetExpanded: isSheetExpanded
                         )
 
-                        // Gesture overlay when collapsed — captures drags on the list area
                         if !isSheetExpanded {
                             Color.clear
                                 .contentShape(Rectangle())
@@ -67,13 +65,12 @@ struct ContentView: View {
                 .shadow(color: .black.opacity(0.12), radius: 12, y: -2)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 .offset(y: isSheetExpanded ? 0 : collapsedOffset)
-                .animation(.spring(response: 0.5, dampingFraction: 0.85), value: isSheetExpanded)
+                .animation(.sheetSpring, value: isSheetExpanded)
                 .onChange(of: scrollOffset) { _, newOffset in
                     handleScrollOffsetChange(newOffset)
                 }
                 .onChange(of: isSheetExpanded) { _, expanded in
                     if expanded {
-                        // Reset base offset so collapse detection recalibrates
                         baseScrollOffset = nil
                     }
                 }
@@ -84,7 +81,7 @@ struct ContentView: View {
                         camera: camera,
                         namespace: heroNamespace,
                         onDismiss: {
-                            withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                            withAnimation(.heroSpring) {
                                 viewModel.selectedCamera = nil
                             }
                         }
@@ -93,7 +90,7 @@ struct ContentView: View {
                     .transition(.opacity)
                 }
             }
-            .animation(.spring(response: 0.45, dampingFraction: 0.85), value: viewModel.selectedCamera?.id)
+            .animation(.heroSpring, value: viewModel.selectedCamera?.id)
         }
         .ignoresSafeArea()
         .environmentObject(viewModel)
@@ -115,7 +112,7 @@ struct ContentView: View {
             .gesture(
                 DragGesture(minimumDistance: 8)
                     .onEnded { value in
-                        withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) {
+                        withAnimation(.sheetSpring) {
                             if value.translation.height < -expandThreshold {
                                 isSheetExpanded = true
                             } else if value.translation.height > expandThreshold {
@@ -132,18 +129,15 @@ struct ContentView: View {
         DragGesture(minimumDistance: 8)
             .onChanged { value in
                 if value.translation.height > 0 {
-                    // Pulling down — build pull-to-refresh
                     pullOffset = min(value.translation.height, 80)
                 }
             }
             .onEnded { value in
                 if value.translation.height < -expandThreshold {
-                    // Drag up → expand sheet
-                    withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) {
+                    withAnimation(.sheetSpring) {
                         isSheetExpanded = true
                     }
                 } else if pullOffset > refreshTrigger {
-                    // Pulled past threshold → refresh
                     triggerRefresh()
                 }
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
@@ -173,7 +167,7 @@ struct ContentView: View {
         .clipped()
     }
 
-    // MARK: - Scroll Offset → Collapse Detection
+    // MARK: - Collapse Detection
 
     private func handleScrollOffsetChange(_ newOffset: CGFloat) {
         guard isSheetExpanded else { return }
@@ -185,9 +179,8 @@ struct ContentView: View {
         guard let base = baseScrollOffset else { return }
         let pull = newOffset - base
 
-        // User has pulled down past threshold while expanded at the top
         if pull > collapseThreshold {
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) {
+            withAnimation(.sheetSpring) {
                 isSheetExpanded = false
             }
         }
@@ -196,29 +189,24 @@ struct ContentView: View {
     // MARK: - Double-Tap on Handle
 
     private func handleDoubleTap() {
-        // Expand if collapsed
         if !isSheetExpanded {
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.85)) {
+            withAnimation(.sheetSpring) {
                 isSheetExpanded = true
             }
         }
 
-        // Scroll to nearest camera to user location, or top
-        if let userLocation = LocationService.shared.currentLocation,
-           let nearest = findNearestCamera(to: userLocation) {
-            scrollToCameraId = nearest.id
-        } else {
-            scrollToCameraId = "top"
+        if let userLocation = LocationService.shared.currentLocation {
+            let userLat = userLocation.coordinate.latitude
+            let userLon = userLocation.coordinate.longitude
+            if let nearest = viewModel.cameras.min(by: { cam1, cam2 in
+                CorridorFilter.haversineDistance(lat1: userLat, lon1: userLon, lat2: cam1.lat, lon2: cam1.lon) <
+                CorridorFilter.haversineDistance(lat1: userLat, lon1: userLon, lat2: cam2.lat, lon2: cam2.lon)
+            }) {
+                scrollToCameraId = nearest.id
+                return
+            }
         }
-    }
-
-    private func findNearestCamera(to location: CLLocation) -> Camera? {
-        guard !viewModel.cameras.isEmpty else { return nil }
-        return viewModel.cameras.min { cam1, cam2 in
-            let d1 = location.distance(from: CLLocation(latitude: cam1.lat, longitude: cam1.lon))
-            let d2 = location.distance(from: CLLocation(latitude: cam2.lat, longitude: cam2.lon))
-            return d1 < d2
-        }
+        scrollToCameraId = "top"
     }
 
     // MARK: - Refresh
@@ -227,8 +215,13 @@ struct ContentView: View {
         guard !isRefreshing else { return }
         isRefreshing = true
         Task {
+            let start = ContinuousClock.now
             await viewModel.refreshCameras()
-            try? await Task.sleep(for: .milliseconds(400))
+            let elapsed = ContinuousClock.now - start
+            let minVisible = Duration.milliseconds(400)
+            if elapsed < minVisible {
+                try? await Task.sleep(for: minVisible - elapsed)
+            }
             isRefreshing = false
         }
     }
