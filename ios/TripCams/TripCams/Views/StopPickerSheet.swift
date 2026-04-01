@@ -22,54 +22,50 @@ struct StopPickerSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                // Search results from geocoding
                 if !geocodeResults.isEmpty {
-                    Section("Search Results") {
+                    Section {
                         ForEach(geocodeResults) { place in
-                            Button {
-                                selectGeocodedPlace(place)
-                            } label: {
-                                HStack(spacing: 10) {
+                            Button { selectGeocodedPlace(place) } label: {
+                                HStack(spacing: 12) {
                                     Image(systemName: "mappin.circle.fill")
+                                        .font(.system(size: 20))
                                         .foregroundStyle(Color.tripGreen)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(place.name)
-                                            .font(.system(size: 14, weight: .medium))
-                                            .foregroundStyle(.primary)
-                                        if !place.region.isEmpty {
-                                            Text(place.region)
-                                                .font(.system(size: 12))
-                                                .foregroundStyle(.secondary)
-                                        }
+
+                                    Text(place.name)
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundStyle(.primary)
+
+                                    Spacer()
+
+                                    if !place.region.isEmpty {
+                                        regionBadge(place.region)
                                     }
                                 }
                             }
                         }
+                    } header: {
+                        Text("Search Results")
                     }
                 }
 
-                // Predefined route stops
                 ForEach(viewModel.routes.sorted(by: { $0.key < $1.key }), id: \.key) { routeId, route in
-                    Section(route.name) {
+                    Section {
                         ForEach(route.stops) { stop in
-                            Button {
-                                selectStop(stop, routeId: routeId)
-                            } label: {
-                                HStack(spacing: 10) {
-                                    Image(systemName: "circle.fill")
-                                        .font(.system(size: 6))
-                                        .foregroundStyle(Color.tripGreen)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(stop.name)
-                                            .font(.system(size: 14, weight: .medium))
-                                            .foregroundStyle(.primary)
-                                        Text(stop.region)
-                                            .font(.system(size: 12))
-                                            .foregroundStyle(.secondary)
-                                    }
+                            Button { selectStop(stop, routeId: routeId) } label: {
+                                HStack(spacing: 12) {
+                                    Text(stop.name)
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundStyle(.primary)
+
+                                    Spacer()
+
+                                    regionBadge(stop.region)
                                 }
+                                .padding(.vertical, 2)
                             }
                         }
+                    } header: {
+                        Text(route.name)
                     }
                 }
             }
@@ -93,6 +89,18 @@ struct StopPickerSheet: View {
         }
     }
 
+    // MARK: - Region Badge
+
+    private func regionBadge(_ region: String) -> some View {
+        Text(region.uppercased())
+            .font(.system(size: 11, weight: .bold))
+            .tracking(0.3)
+            .foregroundStyle(Color.regionBadge(region))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Color.regionBadge(region).opacity(0.12), in: Capsule())
+    }
+
     // MARK: - Selection
 
     private func selectStop(_ stop: RouteStop, routeId: String) {
@@ -104,7 +112,6 @@ struct StopPickerSheet: View {
         }
         viewModel.activeDropdown = .none
 
-        // Auto-load if both are set
         if let from = viewModel.fromStop, let to = viewModel.toStop {
             viewModel.selectRoute(routeId: routeId, from: from, to: to)
         }
@@ -126,7 +133,6 @@ struct StopPickerSheet: View {
         }
         viewModel.activeDropdown = .none
 
-        // Auto-load custom route if both are set
         if let from = viewModel.fromStop, let to = viewModel.toStop {
             viewModel.selectCustomRoute(
                 from: Waypoint(lat: from.lat, lon: from.lon),

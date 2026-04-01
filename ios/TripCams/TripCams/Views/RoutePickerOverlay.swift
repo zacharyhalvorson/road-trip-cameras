@@ -27,7 +27,7 @@ struct RoutePickerOverlay: View {
                     }
                     viewModel.swapFromTo()
                 } label: {
-                    Image(systemName: "arrow.up.arrow.down")
+                    Image(systemName: "arrow.left.arrow.right")
                         .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(.white)
                         .frame(width: 44, height: 44)

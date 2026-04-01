@@ -14,9 +14,15 @@ struct ScrollOffsetPreferenceKey: PreferenceKey {
 struct CameraListView: View {
     @EnvironmentObject private var viewModel: TripViewModel
     var namespace: Namespace.ID?
-    @Binding var scrollOffset: CGFloat
     @Binding var scrollToCameraId: String?
     var isSheetExpanded: Bool
+    var onCollapse: () -> Void
+
+    // Tracks whether scroll is at or near top
+    @State private var isAtTop = true
+    @State private var restingOffset: CGFloat?
+
+    private let collapseThreshold: CGFloat = 50
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -53,7 +59,7 @@ struct CameraListView: View {
                                             }
                                         }
                                         .id(camera.id)
-                                } else {
+                                    } else {
                                     Color.clear
                                         .aspectRatio(16.0 / 9.0, contentMode: .fit)
                                         .id(camera.id)
@@ -63,16 +69,31 @@ struct CameraListView: View {
                     }
                 }
                 .padding(.horizontal, 12)
-                .padding(.top, 12)
+                .padding(.top, 4)
                 .padding(.bottom, 20)
             }
             .coordinateSpace(name: "cameraScroll")
             .onPreferenceChange(ScrollOffsetPreferenceKey.self) { value in
-                if isSheetExpanded {
-                    scrollOffset = value
+                guard isSheetExpanded else { return }
+                if restingOffset == nil {
+                    restingOffset = value
+                }
+                if let resting = restingOffset {
+                    let atTop = value >= resting - 5
+                    if isAtTop != atTop { isAtTop = atTop }
                 }
             }
             .scrollDisabled(!isSheetExpanded)
+            .simultaneousGesture(
+                isSheetExpanded
+                ? DragGesture(minimumDistance: 10)
+                    .onEnded { value in
+                        if isAtTop && value.translation.height > collapseThreshold {
+                            onCollapse()
+                        }
+                    }
+                : nil
+            )
             .onChange(of: scrollToCameraId) { _, targetId in
                 guard let targetId else { return }
                 withAnimation(.easeInOut(duration: 0.3)) {
@@ -81,8 +102,15 @@ struct CameraListView: View {
                 scrollToCameraId = nil
             }
             .onChange(of: isSheetExpanded) { _, expanded in
-                if !expanded {
-                    proxy.scrollTo("top", anchor: .top)
+                if expanded {
+                    restingOffset = nil
+                } else {
+                    // Wait for the sheet spring animation (~0.4s) before resetting scroll
+                    // position — scrolling to top immediately causes a visible jump.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        proxy.scrollTo("top", anchor: .top)
+                        isAtTop = true
+                    }
                 }
             }
         }
