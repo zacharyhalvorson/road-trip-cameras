@@ -204,22 +204,22 @@ class CameraAPIService: ObservableObject {
     private func fetchCaliforniaDistricts(onRegion: @escaping (String, [Camera]) -> Void) async {
         // Check cache first
         if let cached = await cacheService.get(key: "CA") {
-            let cameras = normalizeCA(data: cached.data, district: 0)
+            let cameras = Self.normalizeCA(data: cached.data, district: 0)
             if cached.fresh && !cameras.isEmpty {
                 onRegion("CA", cameras)
                 return
             }
         }
 
+        let session = self.session
         await withTaskGroup(of: [Camera].self) { group in
             for district in Self.caDistricts {
-                group.addTask { [weak self] in
-                    guard let self else { return [] }
+                group.addTask {
                     guard let url = URL(string: district.url) else { return [] }
                     do {
-                        let (data, response) = try await self.session.data(from: url)
+                        let (data, response) = try await session.data(from: url)
                         if let http = response as? HTTPURLResponse, http.statusCode == 200 {
-                            return self.normalizeCA(data: data, district: district.number)
+                            return CameraAPIService.normalizeCA(data: data, district: district.number)
                         }
                     } catch {}
                     return []
@@ -259,7 +259,7 @@ class CameraAPIService: ObservableObject {
         case .arcGIS(let region):
             return normalizeArcGIS(data: data, region: region)
         case .ca:
-            return normalizeCA(data: data, district: 0)
+            return Self.normalizeCA(data: data, district: 0)
         case .or_:
             return normalizeArcGIS(data: data, region: "OR")
         }
@@ -685,7 +685,7 @@ class CameraAPIService: ObservableObject {
     }
 
     /// California Caltrans per-district format.
-    nonisolated private func normalizeCA(data: Data, district: Int) -> [Camera] {
+    nonisolated private static func normalizeCA(data: Data, district: Int) -> [Camera] {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let dataArray = json["data"] as? [[String: Any]] else {
             return []

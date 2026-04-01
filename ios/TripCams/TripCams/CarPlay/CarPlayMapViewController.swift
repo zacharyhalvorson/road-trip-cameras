@@ -174,8 +174,8 @@ extension Array where Element == Waypoint {
         return MKCoordinateRegion(
             center: CLLocationCoordinate2D(latitude: (minLat + maxLat) / 2, longitude: (minLon + maxLon) / 2),
             span: MKCoordinateSpan(
-                latitudeDelta: max((maxLat - minLat) * padding, 0.05),
-                longitudeDelta: max((maxLon - minLon) * padding, 0.05)
+                latitudeDelta: Swift.max((maxLat - minLat) * padding, 0.05),
+                longitudeDelta: Swift.max((maxLon - minLon) * padding, 0.05)
             )
         )
     }

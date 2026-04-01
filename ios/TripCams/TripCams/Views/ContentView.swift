@@ -9,14 +9,11 @@ struct ContentView: View {
     @StateObject private var viewModel = TripViewModel.shared
     @Namespace private var heroNamespace
     @State private var isSheetExpanded = false
-    @State private var scrollOffset: CGFloat = 0
-    @State private var baseScrollOffset: CGFloat?
     @State private var isRefreshing = false
     @State private var pullOffset: CGFloat = 0
     @State private var scrollToCameraId: String?
 
     private let peekHeight: CGFloat = 180
-    private let collapseThreshold: CGFloat = 60
     private let expandThreshold: CGFloat = 40
     private let refreshTrigger: CGFloat = 48
 
@@ -33,7 +30,6 @@ struct ContentView: View {
                 // Layer 2: Route picker overlay at top
                 VStack {
                     RoutePickerOverlay()
-                        .padding(.top, geo.safeAreaInsets.top)
                     Spacer()
                 }
 
@@ -48,9 +44,13 @@ struct ContentView: View {
                     ZStack {
                         CameraListView(
                             namespace: heroNamespace,
-                            scrollOffset: $scrollOffset,
                             scrollToCameraId: $scrollToCameraId,
-                            isSheetExpanded: isSheetExpanded
+                            isSheetExpanded: isSheetExpanded,
+                            onCollapse: {
+                                withAnimation(.sheetSpring) {
+                                    isSheetExpanded = false
+                                }
+                            }
                         )
 
                         if !isSheetExpanded {
@@ -67,14 +67,6 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 .offset(y: isSheetExpanded ? 0 : collapsedOffset)
                 .animation(.sheetSpring, value: isSheetExpanded)
-                .onChange(of: scrollOffset) { _, newOffset in
-                    handleScrollOffsetChange(newOffset)
-                }
-                .onChange(of: isSheetExpanded) { _, expanded in
-                    if expanded {
-                        baseScrollOffset = nil
-                    }
-                }
 
                 // Layer 4: Camera detail modal overlay
                 if let camera = viewModel.selectedCamera {
@@ -93,7 +85,7 @@ struct ContentView: View {
             }
             .animation(.heroSpring, value: viewModel.selectedCamera?.id)
         }
-        .ignoresSafeArea()
+        .ignoresSafeArea(edges: .bottom)
         .environmentObject(viewModel)
     }
 
@@ -103,8 +95,7 @@ struct ContentView: View {
         Capsule()
             .fill(Color(.systemGray3))
             .frame(width: 36, height: 4)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
+            .padding(.vertical, 8)
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
             .onTapGesture(count: 2) {
@@ -166,25 +157,6 @@ struct ContentView: View {
         .frame(height: isRefreshing ? 32 : min(32, max(0, pullOffset * 0.4)))
         .frame(maxWidth: .infinity)
         .clipped()
-    }
-
-    // MARK: - Collapse Detection
-
-    private func handleScrollOffsetChange(_ newOffset: CGFloat) {
-        guard isSheetExpanded else { return }
-
-        if baseScrollOffset == nil {
-            baseScrollOffset = newOffset
-        }
-
-        guard let base = baseScrollOffset else { return }
-        let pull = newOffset - base
-
-        if pull > collapseThreshold {
-            withAnimation(.sheetSpring) {
-                isSheetExpanded = false
-            }
-        }
     }
 
     // MARK: - Double-Tap on Handle

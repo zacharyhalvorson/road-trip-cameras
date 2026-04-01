@@ -14,6 +14,7 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     private var carWindow: UIWindow?
     private var mapViewController: CarPlayMapViewController?
     private var mapTemplate: CPMapTemplate?
+    private var cameraListTemplate: CPListTemplate?
     private var viewModel: TripViewModel? { TripViewModel.shared }
     private var cancellables = Set<AnyCancellable>()
 
@@ -32,11 +33,6 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
         let mapTemplate = CPMapTemplate()
         self.mapTemplate = mapTemplate
 
-        let cameraButton = CPBarButton(image: UIImage(systemName: "camera.fill")!) { [weak self] _ in
-            self?.showCameraList()
-        }
-        mapTemplate.leadingNavigationBarButtons = [cameraButton]
-
         let routeButton = CPBarButton(image: UIImage(systemName: "point.topleft.down.to.point.bottomright.curvepath")!) { [weak self] _ in
             self?.showRouteSelection()
         }
@@ -53,6 +49,7 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
         self.carWindow = nil
         self.mapViewController = nil
         self.mapTemplate = nil
+        self.cameraListTemplate = nil
         cancellables.removeAll()
     }
 
@@ -71,54 +68,66 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
             .store(in: &cancellables)
 
         viewModel.$clusters
+            .removeDuplicates { prev, curr in
+                guard prev.count == curr.count else { return false }
+                return zip(prev, curr).allSatisfy { $0.id == $1.id }
+            }
             .receive(on: RunLoop.main)
             .sink { [weak self] clusters in
                 self?.mapViewController?.updateMarkers(clusters: clusters)
+                self?.updateCameraList(clusters: clusters)
             }
             .store(in: &cancellables)
     }
 
-    // MARK: - Camera List
+    // MARK: - Camera List (auto-shown on map template)
 
-    private func showCameraList() {
-        guard let viewModel = viewModel else { return }
-
-        if viewModel.clusters.isEmpty {
-            let emptyItem = CPListItem(text: "No cameras loaded", detailText: "Select a route first")
-            let template = CPListTemplate(title: "Cameras", sections: [CPListSection(items: [emptyItem])])
-            interfaceController?.pushTemplate(template, animated: true, completion: nil)
+    private func updateCameraList(clusters: [CameraCluster]) {
+        guard !clusters.isEmpty else {
+            // Pop camera list if it was showing and cameras cleared
+            if cameraListTemplate != nil {
+                cameraListTemplate = nil
+                interfaceController?.popToRootTemplate(animated: true, completion: nil)
+            }
             return
         }
 
-        let items: [CPListItem] = viewModel.clusters.prefix(12).map { cluster in
+        let items: [CPListItem] = clusters.prefix(12).map { cluster in
             let camera = cluster.primaryCamera
-            let item = CPListItem(text: cluster.name, detailText: cluster.summary, image: Self.placeholder)
+            let detail = Self.detailText(for: cluster)
+
+            let item = CPListItem(text: cluster.name, detailText: detail, image: Self.placeholder)
             item.handler = { [weak self] _, completion in
-                self?.showClusterDetail(cluster: cluster)
+                self?.handleClusterTap(cluster: cluster)
                 completion()
             }
             loadThumbnail(for: camera, into: item)
             return item
         }
 
-        let template = CPListTemplate(title: "Cameras", sections: [CPListSection(items: items)])
-        interfaceController?.pushTemplate(template, animated: true, completion: nil)
+        let section = CPListSection(items: items)
+
+        if let existing = cameraListTemplate {
+            existing.updateSections([section])
+        } else {
+            let template = CPListTemplate(title: "Cameras", sections: [section])
+            cameraListTemplate = template
+            interfaceController?.pushTemplate(template, animated: true, completion: nil)
+        }
     }
 
-    // MARK: - Cluster Detail
+    // MARK: - Cluster Tap
 
-    private func showClusterDetail(cluster: CameraCluster) {
-        mapViewController?.zoomTo(coordinate: cluster.coordinate, spanDelta: 0.02)
+    private func handleClusterTap(cluster: CameraCluster) {
+        mapViewController?.zoomTo(coordinate: cluster.coordinate, spanDelta: 0.05)
 
-        if cluster.cameras.count == 1 {
-            showCameraDetail(camera: cluster.primaryCamera)
-            return
-        }
+        if cluster.cameras.count == 1 { return }
 
         let items: [CPListItem] = cluster.cameras.map { camera in
-            let item = CPListItem(text: camera.name, detailText: "\(camera.highway) \(camera.direction)", image: Self.placeholder)
+            let detail = [camera.highway, camera.direction].filter { !$0.isEmpty }.joined(separator: " · ")
+            let item = CPListItem(text: camera.name, detailText: detail, image: Self.placeholder)
             item.handler = { [weak self] _, completion in
-                self?.showCameraDetail(camera: camera)
+                self?.mapViewController?.zoomTo(coordinate: camera.coordinate, spanDelta: 0.02)
                 completion()
             }
             loadThumbnail(for: camera, into: item)
@@ -126,25 +135,6 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
         }
 
         let template = CPListTemplate(title: cluster.name, sections: [CPListSection(items: items)])
-        interfaceController?.pushTemplate(template, animated: true, completion: nil)
-    }
-
-    // MARK: - Camera Detail
-
-    private func showCameraDetail(camera: Camera) {
-        mapViewController?.zoomTo(coordinate: camera.coordinate, spanDelta: 0.01)
-
-        var items: [CPInformationItem] = [
-            CPInformationItem(title: "Highway", detail: camera.highway),
-            CPInformationItem(title: "Direction", detail: camera.direction),
-            CPInformationItem(title: "Region", detail: camera.region),
-        ]
-
-        if let temp = camera.temperature {
-            items.append(CPInformationItem(title: "Temperature", detail: "\(Int(temp))\u{00B0}C"))
-        }
-
-        let template = CPInformationTemplate(title: camera.name, layout: .leading, items: items, actions: [])
         interfaceController?.pushTemplate(template, animated: true, completion: nil)
     }
 
@@ -181,6 +171,7 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
                 Task { @MainActor in
                     viewModel.selectRoute(routeId: routeId, from: stop, to: lastStop)
                     await viewModel.loadCamerasForRoute()
+                    self.cameraListTemplate = nil
                     self.interfaceController?.popToRootTemplate(animated: true, completion: nil)
                 }
                 completion()
@@ -193,9 +184,20 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
         interfaceController?.pushTemplate(template, animated: true, completion: nil)
     }
 
+    // MARK: - Helpers
+
+    private static func detailText(for cluster: CameraCluster) -> String {
+        let camera = cluster.primaryCamera
+        if cluster.cameras.count > 1 {
+            return ["\(cluster.cameras.count) cameras", camera.region].joined(separator: " · ")
+        }
+        return [camera.highway, camera.region].filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
     // MARK: - Image Loading
 
     private static let thumbnailSize = CGSize(width: 80, height: 45)
+    private static let thumbnailCache = NSCache<NSURL, UIImage>()
 
     private static let placeholder: UIImage = {
         let renderer = UIGraphicsImageRenderer(size: thumbnailSize)
@@ -209,8 +211,14 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
         let urlString = Self.cleanUrl(camera.thumbnailUrl ?? camera.imageUrl)
         guard let url = URL(string: urlString) else { return }
 
+        if let cached = Self.thumbnailCache.object(forKey: url as NSURL) {
+            item.setImage(cached)
+            return
+        }
+
         Task {
             guard let image = await Self.fetchThumbnail(from: url) else { return }
+            Self.thumbnailCache.setObject(image, forKey: url as NSURL)
             item.setImage(image)
         }
     }
@@ -228,7 +236,7 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     private static func resizeToFill(_ image: UIImage, size: CGSize) -> UIImage {
         let widthRatio = size.width / image.size.width
         let heightRatio = size.height / image.size.height
-        let scale = max(widthRatio, heightRatio)
+        let scale = Swift.max(widthRatio, heightRatio)
         let scaledSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
         let origin = CGPoint(x: (size.width - scaledSize.width) / 2, y: (size.height - scaledSize.height) / 2)
 

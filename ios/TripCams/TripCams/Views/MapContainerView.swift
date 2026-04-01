@@ -12,6 +12,7 @@ struct MapContainerView: View {
 
     @State private var cameraPosition: MapCameraPosition = .automatic
     @State private var selectedCameraId: String?
+    @State private var isSatellite = false
 
     var body: some View {
         ZStack(alignment: .trailing) {
@@ -57,7 +58,7 @@ struct MapContainerView: View {
                         coordinate: cluster.coordinate,
                         anchor: .center
                     ) {
-                        clusterMarker(cluster: cluster)
+                        cameraMarker()
                     }
                     .tag(cluster.primaryCamera.id)
                 }
@@ -65,7 +66,7 @@ struct MapContainerView: View {
 
             UserAnnotation()
         }
-        .mapStyle(.standard(elevation: .realistic, pointsOfInterest: .excludingAll))
+        .mapStyle(currentMapStyle)
         .mapControls {
             MapCompass()
             MapScaleView()
@@ -88,22 +89,9 @@ struct MapContainerView: View {
         }
     }
 
-    // MARK: - Camera Marker
+    // MARK: - Marker
 
     private func cameraMarker() -> some View {
-        Circle()
-            .fill(Color.tripGreen)
-            .frame(width: 10, height: 10)
-            .overlay(
-                Circle()
-                    .stroke(.white, lineWidth: 2)
-            )
-            .shadow(color: .black.opacity(0.2), radius: 1, y: 1)
-    }
-
-    // MARK: - Cluster Marker
-
-    private func clusterMarker(cluster: CameraCluster) -> some View {
         Circle()
             .fill(Color.tripGreen)
             .frame(width: 10, height: 10)
@@ -118,7 +106,7 @@ struct MapContainerView: View {
 
     private var overlayControls: some View {
         VStack(spacing: 4) {
-            Button {
+            mapButton(systemName: "location.fill") {
                 locationService.requestPermission()
                 locationService.startUpdating()
                 if let location = locationService.currentLocation {
@@ -131,29 +119,29 @@ struct MapContainerView: View {
                         )
                     }
                 }
-            } label: {
-                Image(systemName: "location.fill")
-                    .font(.system(size: 16))
-                    .foregroundStyle(.black)
-                    .frame(width: 40, height: 40)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                    .shadow(color: .black.opacity(0.1), radius: 2, y: 1)
             }
 
-            if !viewModel.routeGeometry.isEmpty {
-                Button {
-                    fitMapToRoute()
-                } label: {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 16))
-                        .foregroundStyle(.black)
-                        .frame(width: 40, height: 40)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                        .shadow(color: .black.opacity(0.1), radius: 2, y: 1)
-                }
+            mapButton(systemName: isSatellite ? "map" : "globe.americas") {
+                isSatellite.toggle()
             }
         }
         .padding(.trailing, 12)
+    }
+
+    private func mapButton(systemName: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 16))
+                .foregroundStyle(.black)
+                .frame(width: 40, height: 40)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                .shadow(color: .black.opacity(0.1), radius: 2, y: 1)
+        }
+    }
+
+    private var currentMapStyle: MapStyle {
+        isSatellite ? .hybrid(elevation: .realistic, pointsOfInterest: .excludingAll)
+                    : .standard(elevation: .realistic, pointsOfInterest: .excludingAll)
     }
 
     // MARK: - Helpers
