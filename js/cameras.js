@@ -91,45 +91,8 @@ const Cameras = (() => {
     return bestIdx + bestT;
   }
 
-  // Normalize Alberta 511 camera data
   function normalizeAlberta(data) {
-    if (!Array.isArray(data)) return [];
-    const cameras = [];
-    for (const cam of data) {
-      if (!cam.Latitude || !cam.Longitude) continue;
-      const views = cam.Views || [];
-      for (const view of views) {
-        cameras.push({
-          id: `ab-${cam.Id}-${view.Id || 0}`,
-          name: cam.Location || 'Unknown',
-          highway: cam.Roadway || '',
-          region: 'AB',
-          lat: cam.Latitude,
-          lon: cam.Longitude,
-          imageUrl: view.Url || '',
-          status: (view.Status || '').toLowerCase() === 'disabled' ? 'inactive' : 'active',
-          direction: cam.Direction || view.Description || '',
-          lastUpdated: view.LastUpdated || null,
-          temperature: cam.Temperature ?? null,
-        });
-      }
-      if (views.length === 0) {
-        cameras.push({
-          id: `ab-${cam.Id}`,
-          name: cam.Location || 'Unknown',
-          highway: cam.Roadway || '',
-          region: 'AB',
-          lat: cam.Latitude,
-          lon: cam.Longitude,
-          imageUrl: '',
-          status: 'inactive',
-          direction: cam.Direction || '',
-          lastUpdated: null,
-          temperature: cam.Temperature ?? null,
-        });
-      }
-    }
-    return cameras;
+    return normalizeIBI(data, 'AB');
   }
 
   // Normalize DriveBC camera data

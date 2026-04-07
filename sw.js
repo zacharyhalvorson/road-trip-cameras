@@ -2,7 +2,7 @@
    sw.js — Service Worker with tiered caching strategies
    ============================================================= */
 
-const CACHE_NAME = 'tripcams-v35';
+const CACHE_NAME = 'tripcams-v36';
 const STATIC_ASSETS = [
   './',
   'index.html',
@@ -12,6 +12,7 @@ const STATIC_ASSETS = [
   'js/cameras.js',
   'js/map.js',
   'data/route.json',
+  'data/region-bounds.json',
   'img/placeholder.svg',
   'manifest.json',
 ];
@@ -28,6 +29,8 @@ const API_CACHE = 'tripcams-api-v1';
 const IMAGE_CACHE = 'tripcams-images-v1';
 const TILE_CACHE = 'tripcams-tiles-v1';
 const API_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const ROUTING_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours (road geometry rarely changes)
+const SW_FETCH_TIMEOUT = 15000; // 15s timeout for SW-level fetches
 const IMAGE_CACHE_DURATION = 30 * 60 * 1000; // 30 minutes (was 2 — too short for road trips)
 const TILE_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours (map tiles rarely change)
 const IMAGE_CACHE_LIMIT = 200;
@@ -38,10 +41,8 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
       await cache.addAll(STATIC_ASSETS);
-      // CDN assets — best effort
-      for (const url of CDN_ASSETS) {
-        try { await cache.add(url); } catch (e) { /* ok */ }
-      }
+      // CDN assets — best effort, fetch in parallel
+      await Promise.allSettled(CDN_ASSETS.map(url => cache.add(url)));
     })
   );
 });
@@ -70,15 +71,16 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // API requests (via CORS proxy or direct to camera APIs)
-  if (isApiRequest(url)) {
-    event.respondWith(networkFirstWithCache(event.request, API_CACHE, API_CACHE_DURATION));
+  // Camera images — check before API requests so image hosts (e.g. images.drivebc.ca)
+  // get cache-first treatment instead of network-first
+  if (isCameraImage(url)) {
+    event.respondWith(cacheFirstWithExpiry(event.request, IMAGE_CACHE, IMAGE_CACHE_DURATION));
     return;
   }
 
-  // Camera images
-  if (isCameraImage(url)) {
-    event.respondWith(cacheFirstWithExpiry(event.request, IMAGE_CACHE, IMAGE_CACHE_DURATION));
+  // API requests (via CORS proxy or direct to camera APIs)
+  if (isApiRequest(url)) {
+    event.respondWith(networkFirstWithCache(event.request, API_CACHE, API_CACHE_DURATION));
     return;
   }
 
@@ -90,7 +92,7 @@ self.addEventListener('fetch', (event) => {
 
   // OSRM routing API — cache for 24 hours (road geometry doesn't change often)
   if (isRoutingApi(url)) {
-    event.respondWith(networkFirstWithCache(event.request, API_CACHE, API_CACHE_DURATION));
+    event.respondWith(networkFirstWithCache(event.request, API_CACHE, ROUTING_CACHE_DURATION));
     return;
   }
 
@@ -102,7 +104,10 @@ self.addEventListener('fetch', (event) => {
 
 async function networkFirstWithCache(request, cacheName, maxAge) {
   try {
-    const response = await fetch(request);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), SW_FETCH_TIMEOUT);
+    const response = await fetch(request, { signal: controller.signal });
+    clearTimeout(timeout);
     if (response.ok) {
       const cache = await caches.open(cacheName);
       const headers = new Headers(response.headers);

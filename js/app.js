@@ -154,15 +154,8 @@ const App = (() => {
     return entry;
   }
 
-  // Connection quality detection
   function isSlowConnection() {
-    if (!navigator.onLine) return true;
-    const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-    if (!conn) return false;
-    // saveData flag or effective type is slow
-    if (conn.saveData) return true;
-    if (conn.effectiveType && ['slow-2g', '2g', '3g'].includes(conn.effectiveType)) return true;
-    return false;
+    return API.isSlowConnection();
   }
 
   // DOM refs
@@ -1054,17 +1047,17 @@ const App = (() => {
       ? Cameras.filterByCorridor(allCameras, reducedPath, buffer)
       : allCameras;
 
+    // Quick check: skip expensive sort+render if camera set hasn't changed
+    const idSet = cameras.map(c => c.id).join(',');
+    if (idSet === _lastFilteredIds) {
+      return; // Same cameras — no sort or DOM work needed
+    }
+
     // Sort by route order
     if (reducedPath.length > 0) {
       cameras = Cameras.sortByRoute(cameras, reducedPath);
     }
-
-    // Skip re-render if the camera list hasn't changed
-    const newIds = cameras.map(c => c.id).join(',');
-    if (newIds === _lastFilteredIds) {
-      return; // Same cameras in same order — no DOM work needed
-    }
-    _lastFilteredIds = newIds;
+    _lastFilteredIds = idSet;
 
     filteredCameras = cameras;
 
@@ -1456,10 +1449,12 @@ const App = (() => {
     return src + sep + '_t=' + bucket;
   }
 
+  let _lazyObserver = null;
   function setupLazyLoading() {
+    if (_lazyObserver) _lazyObserver.disconnect();
     const images = dom.cameraList.querySelectorAll('img[data-src]');
     if ('IntersectionObserver' in window) {
-      const observer = new IntersectionObserver((entries) => {
+      const observer = _lazyObserver = new IntersectionObserver((entries) => {
         for (const entry of entries) {
           if (entry.isIntersecting) {
             const img = entry.target;

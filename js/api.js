@@ -297,11 +297,22 @@ const API = (() => {
     }
   }
 
-  function getTimeouts() {
+  function isSlowConnection() {
+    if (!navigator.onLine) return true;
     const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-    const slow = conn && (conn.saveData || ['slow-2g', '2g', '3g'].includes(conn.effectiveType));
+    if (!conn) return false;
+    if (conn.saveData) return true;
+    if (conn.effectiveType && ['slow-2g', '2g', '3g'].includes(conn.effectiveType)) return true;
+    return false;
+  }
+
+  function getTimeouts() {
+    const slow = isSlowConnection();
     return { direct: slow ? 20000 : 10000, proxy: slow ? 25000 : 15000 };
   }
+
+  // Track which proxy indices have failed this session to skip them on subsequent calls
+  const _failedProxies = new Set();
 
   async function fetchDirect(url, options = {}) {
     const controller = new AbortController();
@@ -338,13 +349,18 @@ const API = (() => {
     }
   }
 
-  // Try direct, then each proxy in order
+  // Try direct, then each proxy in order (skipping proxies that failed this session)
   async function fetchWithRetry(url) {
     try {
       return await fetchDirect(url);
     } catch (e) {
-      for (const proxyFn of CORS_PROXIES) {
-        try { return await fetchViaProxy(url, proxyFn); } catch (_) { /* next */ }
+      for (let i = 0; i < CORS_PROXIES.length; i++) {
+        if (_failedProxies.has(i)) continue;
+        try {
+          return await fetchViaProxy(url, CORS_PROXIES[i]);
+        } catch (_) {
+          _failedProxies.add(i);
+        }
       }
       throw e;
     }
@@ -366,23 +382,15 @@ const API = (() => {
 
   // ── Region fetching ────────────────────────────────────────────
 
-  // Get the normalizer function for a region
+  // Normalizers that need the region code passed through
+  const REGION_NORMALIZERS = { normalizeIBI: true, normalizeArcGIS: true };
+
   function getNormalizer(region) {
     const entry = CAMERA_REGISTRY[region];
     if (!entry) return (d) => [];
-    const normName = entry.norm;
-    // normalizeIBI is the generic IBI 511 normalizer that takes a region code
-    if (normName === 'normalizeIBI') return (d) => Cameras.normalizeIBI(d, region);
-    if (normName === 'normalizeAlberta') return Cameras.normalizeAlberta;
-    if (normName === 'normalizeBC') return Cameras.normalizeBC;
-    if (normName === 'normalizeWA') return Cameras.normalizeWA;
-    if (normName === 'normalizeQC') return Cameras.normalizeQC;
-    if (normName === 'normalizeMD') return Cameras.normalizeMD;
-    if (normName === 'normalizeOH') return Cameras.normalizeOH;
-    if (normName === 'normalizeND') return Cameras.normalizeND;
-    if (normName === 'normalizeArcGIS') return (d) => Cameras.normalizeArcGIS(d, region);
-    if (normName === 'normalizeCA') return Cameras.normalizeCA;
-    return (d) => [];
+    const fn = Cameras[entry.norm];
+    if (!fn) return (d) => [];
+    return REGION_NORMALIZERS[entry.norm] ? (d) => fn(d, region) : fn;
   }
 
   // Generic fetch for a region: stale-while-revalidate pattern
@@ -583,7 +591,7 @@ const API = (() => {
 
     if (regions.length === 0) return;
 
-    const BATCH_SIZE = 8;
+    const BATCH_SIZE = isSlowConnection() ? 3 : 8;
     for (let i = 0; i < regions.length; i += BATCH_SIZE) {
       const batch = regions.slice(i, i + BATCH_SIZE);
       const fetchers = batch.map(key =>
@@ -927,6 +935,7 @@ const API = (() => {
     setRouteGeometry,
     fetchIncidents,
     hasIncidentRegion,
+    isSlowConnection,
     CAMERA_REGISTRY,
   };
 })();
