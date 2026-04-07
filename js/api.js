@@ -54,18 +54,19 @@ const API = (() => {
         // Primary: static JSON file, no auth required, most reliable
         'https://data.wsdot.wa.gov/mobile/Cameras.json',
         // Secondary: ArcGIS FeatureServer, no auth, standard format
-        'https://data.wsdot.wa.gov/arcgis/rest/services/TravelInformation/TravelInfoCamerasWeather/FeatureServer/0/query?where=1%3D1&outFields=*&f=json',
+        // outSR=4326 requests WGS84 lat/lon (default is Web Mercator 3857)
+        'https://data.wsdot.wa.gov/arcgis/rest/services/TravelInformation/TravelInfoCamerasWeather/FeatureServer/0/query?where=1%3D1&outFields=*&outSR=4326&f=json',
       ],
       norm: 'normalizeWA', country: 'US'
     },
-    OR: { url: 'https://gis.odot.state.or.us/arcgis1006/rest/services/trip_check/Trip_Check_Terrain/MapServer/1/query?where=1%3D1&outFields=*&f=json', norm: 'normalizeArcGIS', country: 'US' },
+    OR: { url: 'https://gis.odot.state.or.us/arcgis1006/rest/services/trip_check/Trip_Check_Terrain/MapServer/1/query?where=1%3D1&outFields=*&outSR=4326&f=json', norm: 'normalizeArcGIS', country: 'US' },
     MD: { url: 'https://chart.maryland.gov/DataFeeds/GetCamerasJson', norm: 'normalizeMD', country: 'US' },
     OH: { url: 'https://publicapi.ohgo.com/api/v1/cameras', norm: 'normalizeOH', country: 'US' },
     ND: { url: 'https://travelfiles.dot.nd.gov/geojson_nc/cameras.json', norm: 'normalizeND', country: 'US' },
 
     // ── US: ArcGIS Feature Services ──
-    WY: { url: 'https://map.wyoroad.info/ags/rest/services/WTIMAP/WebCameras_v2/MapServer/0/query?where=1%3D1&outFields=*&f=json', norm: 'normalizeArcGIS', country: 'US' },
-    KY: { url: 'https://kygisserver.ky.gov/arcgis/rest/services/WGS84WM_Services/Ky_WebCams_WGS84WM/MapServer/0/query?where=1%3D1&outFields=*&f=json', norm: 'normalizeArcGIS', country: 'US' },
+    WY: { url: 'https://map.wyoroad.info/ags/rest/services/WTIMAP/WebCameras_v2/MapServer/0/query?where=1%3D1&outFields=*&outSR=4326&f=json', norm: 'normalizeArcGIS', country: 'US' },
+    KY: { url: 'https://kygisserver.ky.gov/arcgis/rest/services/WGS84WM_Services/Ky_WebCams_WGS84WM/MapServer/0/query?where=1%3D1&outFields=*&outSR=4326&f=json', norm: 'normalizeArcGIS', country: 'US' },
     DE: { url: 'https://enterprise.firstmaptest.delaware.gov/arcgis/rest/services/Transportation/DE_TMC_Traffic_Feeds/FeatureServer/1/query?where=1%3D1&outFields=*&f=json', norm: 'normalizeArcGIS', country: 'US' },
 
     // ── US: California per-district ──
