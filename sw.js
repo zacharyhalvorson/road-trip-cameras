@@ -2,7 +2,7 @@
    sw.js — Service Worker with tiered caching strategies
    ============================================================= */
 
-const CACHE_NAME = 'tripcams-v32';
+const CACHE_NAME = 'tripcams-v33';
 const STATIC_ASSETS = [
   './',
   'index.html',
@@ -179,7 +179,10 @@ async function staleWhileRevalidate(request) {
 
 function isApiRequest(url) {
   const host = url.hostname.toLowerCase();
-  return host === 'corsproxy.io' ||
+  return host.endsWith('.workers.dev') ||
+    host === 'corsproxy.io' ||
+    host === 'api.allorigins.win' ||
+    host === 'proxy.corsfix.com' ||
     host === '511.alberta.ca' ||
     host === 'images.drivebc.ca' ||
     host.includes('wsdot') ||
