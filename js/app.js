@@ -851,6 +851,7 @@ const App = (() => {
         // cameras get fetched once per state with different region prefixes. Dedup by lat/lon.
         const seen = new Set();
         allCameras = freshCameras.filter(cam => {
+          if (cam.lat == null || cam.lon == null) return true;
           const key = `${cam.lat.toFixed(4)},${cam.lon.toFixed(4)},${cam.imageUrl}`;
           if (seen.has(key)) return false;
           seen.add(key);

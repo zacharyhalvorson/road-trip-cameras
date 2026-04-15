@@ -642,9 +642,9 @@ const API = (() => {
 
   // ── Progressive fetching ───────────────────────────────────────
 
-  // Fetch regions progressively, calling onRegion as each completes
-  // neededRegions: Set of region codes to fetch
-  // Batches requests to avoid overwhelming connections (max 4 concurrent)
+  // Fetch regions progressively, calling onRegion as each completes.
+  // Deduplicates by URL so multi-state APIs (e.g., newengland511 for VT/NH/ME)
+  // are only fetched once, with the result fanned out to all matching regions.
   async function fetchProgressive(onRegion, neededRegions) {
     const regions = neededRegions
       ? [...neededRegions].filter(r => CAMERA_REGISTRY[r])
@@ -652,14 +652,31 @@ const API = (() => {
 
     if (regions.length === 0) return;
 
+    // Group regions that share the same URL so we fetch once per unique endpoint.
+    const urlToRegions = new Map();
+    const uniqueRegions = [];
+    for (const key of regions) {
+      const entry = CAMERA_REGISTRY[key];
+      const url = entry.url || (entry.urls && entry.urls[0]) || key;
+      if (urlToRegions.has(url)) {
+        urlToRegions.get(url).push(key);
+      } else {
+        urlToRegions.set(url, [key]);
+        uniqueRegions.push(key); // first region for this URL does the fetch
+      }
+    }
+
     const BATCH_SIZE = isSlowConnection() ? 3 : 8;
-    for (let i = 0; i < regions.length; i += BATCH_SIZE) {
-      const batch = regions.slice(i, i + BATCH_SIZE);
-      const fetchers = batch.map(key =>
-        fetchRegisteredRegion(key)
+    for (let i = 0; i < uniqueRegions.length; i += BATCH_SIZE) {
+      const batch = uniqueRegions.slice(i, i + BATCH_SIZE);
+      const fetchers = batch.map(key => {
+        const entry = CAMERA_REGISTRY[key];
+        const url = entry.url || (entry.urls && entry.urls[0]) || key;
+        const siblings = urlToRegions.get(url);
+        return fetchRegisteredRegion(key)
           .then(r => { onRegion(key, r); return r; })
-          .catch(e => { onRegion(key, { data: [], fromCache: true, error: e.message }); })
-      );
+          .catch(e => { onRegion(key, { data: [], fromCache: true, error: e.message }); });
+      });
       await Promise.allSettled(fetchers);
     }
   }
