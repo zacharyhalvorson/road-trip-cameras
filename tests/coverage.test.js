@@ -270,6 +270,9 @@ const CITIES = {
 
   // US Additional for coverage
   'Fargo, ND':          { lat: 46.88, lon: -96.79 },
+  'Sioux Falls, SD':    { lat: 43.55, lon: -96.73 },
+  'Oklahoma City, OK':  { lat: 35.47, lon: -97.52 },
+  'Little Rock, AR':    { lat: 34.75, lon: -92.29 },
   'Cheyenne, WY':       { lat: 41.14, lon: -104.82 },
   'Anchorage, AK':      { lat: 61.22, lon: -149.90 },
   'Fairbanks, AK':      { lat: 64.84, lon: -147.72 },
@@ -331,11 +334,15 @@ const ROUTES = [
   ['Denver, CO', 'Cheyenne, WY', 'I-25 Front Range', 'required'],
   ['Fargo, ND', 'Minneapolis, MN', 'I-94 Northern Plains', 'required'],
 
-  // South — TX has no IBI 511 API; these routes are 'desired' not 'required'
-  ['New Orleans, LA', 'Houston, TX', 'I-10 Gulf', 'desired'],
+  // South & Central
+  ['New Orleans, LA', 'Houston, TX', 'I-10 Gulf', 'required'],
   ['Atlanta, GA', 'New Orleans, LA', 'I-10/I-20 Deep South', 'required'],
   ['Nashville, TN', 'Atlanta, GA', 'I-24/I-75 Southeast', 'required'],
-  ['Dallas, TX', 'Houston, TX', 'I-45 Texas', 'desired'],
+  ['Dallas, TX', 'Houston, TX', 'I-45 Texas', 'required'],
+  ['Oklahoma City, OK', 'Dallas, TX', 'I-35 South Central', 'required'],
+  ['Little Rock, AR', 'Dallas, TX', 'I-30 AR/TX', 'required'],
+  ['Sioux Falls, SD', 'Fargo, ND', 'I-29 Dakotas', 'required'],
+  ['Omaha, NE', 'Sioux Falls, SD', 'I-29 Plains', 'required'],
 
   // Alaska
   ['Anchorage, AK', 'Fairbanks, AK', 'AK-3 Parks Hwy', 'required'],

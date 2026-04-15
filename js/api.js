@@ -62,6 +62,24 @@ const API = (() => {
     IL: { url: 'https://www.gettingaroundillinois.com/api/v2/get/cameras', norm: 'normalizeIBI', country: 'US' },
     WV: { url: 'https://wv511.org/api/v2/get/cameras', norm: 'normalizeIBI', country: 'US' },
 
+    // ── US: IBI 511 — regional / less certain ──
+    // These use the standard IBI pattern; the app degrades gracefully if they don't respond.
+    VT: { url: 'https://www.newengland511.org/api/v2/get/cameras', norm: 'normalizeIBI', country: 'US' },
+    NH: { url: 'https://www.newengland511.org/api/v2/get/cameras', norm: 'normalizeIBI', country: 'US' },
+    ME: { url: 'https://www.newengland511.org/api/v2/get/cameras', norm: 'normalizeIBI', country: 'US' },
+    SD: { url: 'https://www.sd511.org/api/v2/get/cameras', norm: 'normalizeIBI', country: 'US' },
+    KS: { url: 'https://kandrive.gov/api/v2/get/cameras', norm: 'normalizeIBI', country: 'US' },
+    OK: { url: 'https://oktraffic.org/api/v2/get/cameras', norm: 'normalizeIBI', country: 'US' },
+    VA: { url: 'https://www.511virginia.org/api/v2/get/cameras', norm: 'normalizeIBI', country: 'US' },
+    NC: { url: 'https://drivenc.gov/api/v2/get/cameras', norm: 'normalizeIBI', country: 'US' },
+    TN: { url: 'https://smartway.tn.gov/api/v2/get/cameras', norm: 'normalizeIBI', country: 'US' },
+    MO: { url: 'https://traveler.modot.org/api/v2/get/cameras', norm: 'normalizeIBI', country: 'US' },
+    MI: { url: 'https://mi511.org/api/v2/get/cameras', norm: 'normalizeIBI', country: 'US' },
+    AL: { url: 'https://algotraffic.com/api/v2/get/cameras', norm: 'normalizeIBI', country: 'US' },
+    MS: { url: 'https://mdottraffic.com/api/v2/get/cameras', norm: 'normalizeIBI', country: 'US' },
+    AR: { url: 'https://idrivearkansas.com/api/v2/get/cameras', norm: 'normalizeIBI', country: 'US' },
+    TX: { url: 'https://drivetexas.org/api/v2/get/cameras', norm: 'normalizeIBI', country: 'US' },
+
     // ── US: Custom formats ──
     WA: {
       urls: [
@@ -128,6 +146,21 @@ const API = (() => {
     IN: { url: 'https://511in.org/api/v2/get/event' },
     IL: { url: 'https://www.gettingaroundillinois.com/api/v2/get/event' },
     WV: { url: 'https://wv511.org/api/v2/get/event' },
+    VT: { url: 'https://www.newengland511.org/api/v2/get/event' },
+    NH: { url: 'https://www.newengland511.org/api/v2/get/event' },
+    ME: { url: 'https://www.newengland511.org/api/v2/get/event' },
+    SD: { url: 'https://www.sd511.org/api/v2/get/event' },
+    KS: { url: 'https://kandrive.gov/api/v2/get/event' },
+    OK: { url: 'https://oktraffic.org/api/v2/get/event' },
+    VA: { url: 'https://www.511virginia.org/api/v2/get/event' },
+    NC: { url: 'https://drivenc.gov/api/v2/get/event' },
+    TN: { url: 'https://smartway.tn.gov/api/v2/get/event' },
+    MO: { url: 'https://traveler.modot.org/api/v2/get/event' },
+    MI: { url: 'https://mi511.org/api/v2/get/event' },
+    AL: { url: 'https://algotraffic.com/api/v2/get/event' },
+    MS: { url: 'https://mdottraffic.com/api/v2/get/event' },
+    AR: { url: 'https://idrivearkansas.com/api/v2/get/event' },
+    TX: { url: 'https://drivetexas.org/api/v2/get/event' },
     // US — Custom formats
     WA: { url: 'https://data.wsdot.wa.gov/mobile/HighwayAlerts.json' },
     OR: { url: 'https://tripcheck.com/Scripts/map/data/incidents.js' },
